@@ -374,8 +374,11 @@ def compute_leader_pay_report() -> List[Dict[str, Any]]:
     if assignments.empty:
         return []
 
-    assignments["start_date"] = pd.to_datetime(assignments["start_date"])
-    assignments["end_date"] = pd.to_datetime(assignments["end_date"])
+    # Parse dates robustly: support both DD-MM-YYYY and YYYY-MM-DD inputs
+    assignments["start_date"] = pd.to_datetime(assignments["start_date"], dayfirst=True, errors="coerce")
+    assignments["end_date"] = pd.to_datetime(assignments["end_date"], dayfirst=True, errors="coerce")
+    # Drop any rows with invalid dates to avoid downstream crashes
+    assignments = assignments.dropna(subset=["start_date", "end_date"])
     assignments["days"] = (assignments["end_date"] - assignments["start_date"]).dt.days + 1
 
     daily_rate = float(get_daily_pay_rate() or "0")
@@ -447,10 +450,15 @@ def get_leader_statistics(leader_user_id: int) -> List[Dict[str, Any]]:
         # Get camp details for duration
         camp = get_camp(camp_id)
         if camp:
-            start = pd.to_datetime(camp["start_date"])
-            end = pd.to_datetime(camp["end_date"])
-            camp_days = (end - start).days + 1
-            total_food_used = total_food_allocated * camp_days
+            # Parse camp dates robustly; handle invalid values
+            start = pd.to_datetime(camp["start_date"], dayfirst=True, errors="coerce")
+            end = pd.to_datetime(camp["end_date"], dayfirst=True, errors="coerce")
+            if pd.isna(start) or pd.isna(end):
+                camp_days = 0
+                total_food_used = 0
+            else:
+                camp_days = (end - start).days + 1
+                total_food_used = total_food_allocated * camp_days
         else:
             camp_days = 0
             total_food_used = 0
@@ -761,6 +769,23 @@ def delete_activity(activity_id: int, camp_id: int) -> bool:
     return res.rowcount > 0
 
 
+def update_activity(activity_id: int, camp_id: int, name: str, date: str) -> bool:
+    """Update an activity's name and date; returns True if a row was changed."""
+    try:
+        with _connect() as conn:
+            res = conn.execute(
+                """
+                UPDATE activities
+                SET name = ?, date = ?
+                WHERE id = ? AND camp_id = ?;
+                """,
+                (name.strip(), date, activity_id, camp_id),
+            )
+        return res.rowcount > 0
+    except sqlite3.IntegrityError:
+        return False
+
+
 def assign_campers_to_activity(activity_id: int, camper_ids: List[int]) -> None:
     with _connect() as conn:
         conn.executemany(
@@ -807,6 +832,14 @@ def save_daily_report(leader_user_id: int, camp_id: int, date: str, notes: str) 
             ON CONFLICT(date, camp_id, leader_user_id) DO UPDATE SET notes = excluded.notes;
             """,
             (camp_id, leader_user_id, date, notes.strip()),
+        )
+
+
+def delete_daily_report(leader_user_id: int, camp_id: int, date: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "DELETE FROM daily_reports WHERE leader_user_id = ? AND camp_id = ? AND date = ?;",
+            (leader_user_id, camp_id, date),
         )
 
 

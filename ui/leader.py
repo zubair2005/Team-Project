@@ -1,6 +1,7 @@
 """Leader dashboard UI with tabbed navigation."""
 
 import tkinter as tk
+import sqlite3
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Callable, Dict, Optional
 
@@ -9,6 +10,8 @@ from services import (
     assign_leader_to_camp,
     create_activity,
     delete_activity,
+    update_activity,
+    delete_daily_report,
     get_leader_statistics,
     import_campers_from_csv,
     list_activity_campers,
@@ -24,17 +27,19 @@ from services import (
     save_daily_report,
     update_camp_camper_food,
 )
-from ui.components import MessageBoard, Table
+from ui.components import MessageBoard, Table, ScrollFrame
+from ui.theme import get_palette, tint
 
 
 def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callable[[], None]) -> tk.Frame:
-    container = tk.Frame(root)
+    scroll = ScrollFrame(root)
+    container = scroll.content
 
-    header = tk.Frame(container)
+    header = ttk.Frame(container)
     header.pack(fill=tk.X, padx=10, pady=8)
 
     tk.Label(header, text="Leader Dashboard", font=("Helvetica", 16, "bold")).pack(side=tk.LEFT)
-    tk.Button(header, text="Logout", command=logout_callback).pack(side=tk.RIGHT)
+    ttk.Button(header, text="Logout", command=logout_callback).pack(side=tk.RIGHT)
 
     notebook = ttk.Notebook(container)
     notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
@@ -45,12 +50,12 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     tab_camps = tk.Frame(notebook)
     notebook.add(tab_camps, text="Camps & Pay")
 
-    pay_frame = tk.LabelFrame(tab_camps, text="Pay summary", padx=10, pady=10)
-    pay_frame.pack(fill=tk.X, padx=10, pady=6)
+    ttk.Label(tab_camps, text="Pay summary", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, padx=10, pady=(6, 2))
+    pay_frame = ttk.Frame(tab_camps, style="Card.TFrame", padding=10)
+    pay_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
 
     total_pay_var = tk.StringVar(value="Total: 0.00")
-    total_pay_label = tk.Label(pay_frame, textvariable=total_pay_var, font=("Helvetica", 12, "bold"))
-    total_pay_label.pack(side=tk.LEFT, padx=6)
+    ttk.Label(pay_frame, textvariable=total_pay_var, font=("Helvetica", 13, "bold")).pack(side=tk.LEFT, padx=6)
 
     per_camp_text = tk.Text(pay_frame, height=3, width=60, state="disabled")
     per_camp_text.pack(side=tk.LEFT, padx=6)
@@ -74,16 +79,41 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     assignments_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
 
     columns = ("Camp", "Location", "Area", "Start", "End")
-    assignments_table = ttk.Treeview(assignments_frame, columns=columns, show="headings", height=6)
+    assign_container = ttk.Frame(assignments_frame)
+    assign_container.pack(fill=tk.BOTH, expand=True)
+    assignments_table = ttk.Treeview(assign_container, columns=columns, show="headings", height=6)
+    assign_scroll = ttk.Scrollbar(assign_container, orient="vertical", command=assignments_table.yview)
+    assignments_table.configure(yscrollcommand=assign_scroll.set)
     for col in columns:
         assignments_table.heading(col, text=col)
         assignments_table.column(col, width=140)
-    assignments_table.column("Camp", width=180)
-    assignments_table.pack(fill=tk.BOTH, expand=True, pady=4)
+    assignments_table.heading("Camp", anchor=tk.W)
+    assignments_table.column("Camp", width=180, anchor=tk.W)
+    assignments_table.heading("Location", anchor=tk.W)
+    assignments_table.column("Location", anchor=tk.W)
+    assignments_table.heading("Area", anchor=tk.CENTER)
+    assignments_table.column("Area", anchor=tk.CENTER)
+    assignments_table.heading("Start", anchor=tk.CENTER)
+    assignments_table.column("Start", anchor=tk.CENTER)
+    assignments_table.heading("End", anchor=tk.CENTER)
+    assignments_table.column("End", anchor=tk.CENTER)
+    assignments_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
+    assign_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
+
+    assignments_empty_label = ttk.Label(assignments_frame, text="No assignments yet.", style="Muted.TLabel")
+    assignments_empty_label.pack_forget()
 
     def refresh_assignments() -> None:
         assignments_table.delete(*assignments_table.get_children())
-        for record in list_leader_assignments(leader_id):
+        palette = get_palette(assignments_table)
+        assignments_table.tag_configure("even", background=palette["surface"])
+        assignments_table.tag_configure("odd", background=tint(palette["surface"], -0.03))
+        rows = list_leader_assignments(leader_id)
+        if not rows:
+            assignments_empty_label.pack(pady=(0, 4), anchor=tk.W)
+        else:
+            assignments_empty_label.pack_forget()
+        for idx, record in enumerate(rows):
             assignments_table.insert(
                 "",
                 tk.END,
@@ -95,21 +125,47 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                     record["start_date"],
                     record["end_date"],
                 ),
+                tags=("odd",) if (idx % 2 == 1) else ("even",),
             )
         refresh_available_camps()
         refresh_pay_summary()
 
     tk.Label(assignments_frame, text="Available camps (no conflicts)").pack(pady=(10, 4))
-    available_table = ttk.Treeview(assignments_frame, columns=columns, show="headings", height=5)
+    avail_container = ttk.Frame(assignments_frame)
+    avail_container.pack(fill=tk.BOTH, expand=True)
+    available_table = ttk.Treeview(avail_container, columns=columns, show="headings", height=5)
+    avail_scroll = ttk.Scrollbar(avail_container, orient="vertical", command=available_table.yview)
+    available_table.configure(yscrollcommand=avail_scroll.set)
     for col in columns:
         available_table.heading(col, text=col)
         available_table.column(col, width=140)
-    available_table.column("Camp", width=180)
-    available_table.pack(fill=tk.BOTH, expand=True, pady=4)
+    available_table.heading("Camp", anchor=tk.W)
+    available_table.column("Camp", width=180, anchor=tk.W)
+    available_table.heading("Location", anchor=tk.W)
+    available_table.column("Location", anchor=tk.W)
+    available_table.heading("Area", anchor=tk.CENTER)
+    available_table.column("Area", anchor=tk.CENTER)
+    available_table.heading("Start", anchor=tk.CENTER)
+    available_table.column("Start", anchor=tk.CENTER)
+    available_table.heading("End", anchor=tk.CENTER)
+    available_table.column("End", anchor=tk.CENTER)
+    available_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
+    avail_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
+
+    available_empty_label = ttk.Label(assignments_frame, text="No available camps.", style="Muted.TLabel")
+    available_empty_label.pack_forget()
 
     def refresh_available_camps() -> None:
         available_table.delete(*available_table.get_children())
-        for camp in list_available_camps_for_leader(leader_id):
+        palette = get_palette(available_table)
+        available_table.tag_configure("even", background=palette["surface"])
+        available_table.tag_configure("odd", background=tint(palette["surface"], -0.03))
+        rows = list_available_camps_for_leader(leader_id)
+        if not rows:
+            available_empty_label.pack(pady=(0, 4), anchor=tk.W)
+        else:
+            available_empty_label.pack_forget()
+        for idx, camp in enumerate(rows):
             available_table.insert(
                 "",
                 tk.END,
@@ -121,6 +177,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                     camp["start_date"],
                     camp["end_date"],
                 ),
+                tags=("odd",) if (idx % 2 == 1) else ("even",),
             )
 
     def assign_selected_camp() -> None:
@@ -150,10 +207,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             return
         refresh_assignments()
 
-    action_row = tk.Frame(assignments_frame)
+    action_row = ttk.Frame(assignments_frame)
     action_row.pack(fill=tk.X, pady=4)
-    tk.Button(action_row, text="Assign selected camp", command=assign_selected_camp).pack(side=tk.LEFT, padx=4)
-    tk.Button(action_row, text="Remove selected assignment", command=remove_assignment).pack(side=tk.LEFT, padx=4)
+    ttk.Button(action_row, text="Assign selected camp", command=assign_selected_camp).pack(side=tk.LEFT, padx=4)
+    ttk.Button(action_row, text="Remove selected assignment", command=remove_assignment).pack(side=tk.LEFT, padx=4)
 
     refresh_assignments()
 
@@ -161,13 +218,22 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     tab_campers = tk.Frame(notebook)
     notebook.add(tab_campers, text="Campers")
 
-    tk.Label(tab_campers, text="Select an assignment from 'Camps & Pay' tab first", fg="#666666", font=("Helvetica", 10, "italic")).pack(pady=4)
+    ttk.Label(tab_campers, text="Select an assignment from 'Camps & Pay' tab first", style="Muted.TLabel", font=("Helvetica", 10, "italic")).pack(pady=4)
 
     campers_frame = tk.LabelFrame(tab_campers, text="Campers in selected camp", padx=10, pady=10)
     campers_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
 
-    campers_table = Table(campers_frame, columns=["Name", "DOB", "Emergency", "Food units/day"])
-    campers_table.pack(fill=tk.BOTH, expand=True, pady=4)
+    # Campers table with vertical scrollbar
+    campers_container = ttk.Frame(campers_frame)
+    campers_container.pack(fill=tk.BOTH, expand=True)
+    campers_table = Table(campers_container, columns=["Name", "DOB", "Emergency", "Food units/day"])
+    campers_scroll = ttk.Scrollbar(campers_container, orient="vertical", command=campers_table.yview)
+    campers_table.configure(yscrollcommand=campers_scroll.set)
+    campers_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
+    campers_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
+
+    campers_empty_label = ttk.Label(campers_frame, text="No campers in the selected camp.", style="Muted.TLabel")
+    campers_empty_label.pack_forget()
 
     def load_campers_for_selection() -> None:
         selection = assignments_table.selection()
@@ -179,17 +245,27 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         if record is None:
             return
         campers = list_camp_campers(record["camp_id"])
-        campers_table.load_rows(
-            [
-                (
-                    f"{row['first_name']} {row['last_name']}",
-                    row["dob"],
-                    row["emergency_contact"],
-                    row["food_units_per_day"],
-                )
-                for row in campers
-            ]
-        )
+        rows = [
+            (
+                f"{row['first_name']} {row['last_name']}",
+                row["dob"],
+                row["emergency_contact"],
+                row["food_units_per_day"],
+            )
+            for row in campers
+        ]
+        campers_table.load_rows(rows)
+        # Zebra-striping after load
+        palette = get_palette(campers_table)
+        campers_table.tag_configure("even", background=palette["surface"])
+        campers_table.tag_configure("odd", background=tint(palette["surface"], -0.03))
+        for idx, item_id in enumerate(campers_table.get_children()):
+            campers_table.item(item_id, tags=("odd",) if (idx % 2 == 1) else ("even",))
+        # Empty state toggle
+        if not rows:
+            campers_empty_label.pack(pady=(0, 4), anchor=tk.W)
+        else:
+            campers_empty_label.pack_forget()
 
     assignments_table.bind("<<TreeviewSelect>>", lambda _evt: load_campers_for_selection())
 
@@ -273,10 +349,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         tk.Button(dialog, text="Update", command=update_selected).pack(pady=6)
         tk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=6)
 
-    action_row = tk.Frame(campers_frame)
+    action_row = ttk.Frame(campers_frame)
     action_row.pack(fill=tk.X, pady=4)
-    tk.Button(action_row, text="Import campers from CSV", command=import_csv).pack(side=tk.LEFT, padx=4)
-    tk.Button(action_row, text="Adjust food units", command=adjust_food_units).pack(side=tk.LEFT, padx=4)
+    ttk.Button(action_row, text="Import campers from CSV", command=import_csv).pack(side=tk.LEFT, padx=4)
+    ttk.Button(action_row, text="Adjust food units", command=adjust_food_units).pack(side=tk.LEFT, padx=4)
 
     # ========== Tab 3: Activities ==========
     tab_activities = tk.Frame(notebook)
@@ -287,8 +363,17 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     activities_frame = tk.LabelFrame(tab_activities, text="Activities for selected camp", padx=10, pady=10)
     activities_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
 
-    activities_table = Table(activities_frame, columns=["Name", "Date", "Participants"])
-    activities_table.pack(fill=tk.BOTH, expand=True, pady=4)
+    # Activities table with vertical scrollbar
+    activities_container = ttk.Frame(activities_frame)
+    activities_container.pack(fill=tk.BOTH, expand=True)
+    activities_table = Table(activities_container, columns=["Name", "Date", "Participants"])
+    activities_scroll = ttk.Scrollbar(activities_container, orient="vertical", command=activities_table.yview)
+    activities_table.configure(yscrollcommand=activities_scroll.set)
+    activities_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
+    activities_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
+
+    activities_empty_label = ttk.Label(activities_frame, text="No activities for the selected camp.", style="Muted.TLabel")
+    activities_empty_label.pack_forget()
 
     def load_activities() -> None:
         selection = assignments_table.selection()
@@ -305,6 +390,17 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             participants = list_activity_campers(activity["id"])
             rows.append((activity["name"], activity["date"], len(participants)))
         activities_table.load_rows(rows)
+        # Zebra-striping after load
+        palette = get_palette(activities_table)
+        activities_table.tag_configure("even", background=palette["surface"])
+        activities_table.tag_configure("odd", background=tint(palette["surface"], -0.03))
+        for idx, item_id in enumerate(activities_table.get_children()):
+            activities_table.item(item_id, tags=("odd",) if (idx % 2 == 1) else ("even",))
+        # Empty state toggle
+        if not rows:
+            activities_empty_label.pack(pady=(0, 4), anchor=tk.W)
+        else:
+            activities_empty_label.pack_forget()
 
     def create_activity_dialog() -> None:
         selection = assignments_table.selection()
@@ -320,13 +416,13 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         dialog.title("Create activity")
         dialog.geometry("360x220")
 
-        tk.Label(dialog, text="Activity name").pack(pady=4)
+        ttk.Label(dialog, text="Activity name").pack(pady=4)
         name_var = tk.StringVar()
-        tk.Entry(dialog, textvariable=name_var, width=30).pack(pady=4)
+        ttk.Entry(dialog, textvariable=name_var, width=30).pack(pady=4)
 
-        tk.Label(dialog, text="Date (YYYY-MM-DD)").pack(pady=4)
+        ttk.Label(dialog, text="Date (YYYY-MM-DD)").pack(pady=4)
         date_var = tk.StringVar()
-        tk.Entry(dialog, textvariable=date_var, width=20).pack(pady=4)
+        ttk.Entry(dialog, textvariable=date_var, width=20).pack(pady=4)
 
         def save() -> None:
             name = name_var.get().strip()
@@ -347,8 +443,8 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             dialog.destroy()
             load_activities()
 
-        tk.Button(dialog, text="Create", command=save).pack(pady=8)
-        tk.Button(dialog, text="Cancel", command=dialog.destroy).pack(pady=4)
+        ttk.Button(dialog, text="Create", command=save).pack(pady=8)
+        ttk.Button(dialog, text="Cancel", command=dialog.destroy).pack(pady=4)
 
     def delete_selected_activity() -> None:
         selection_assignment = assignments_table.selection()
@@ -405,7 +501,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         dialog.title("Bulk assign campers to activity")
         dialog.geometry("400x360")
 
-        tk.Label(dialog, text="Select multiple campers (Ctrl/Cmd + click)", font=("Helvetica", 10, "italic")).pack(pady=4)
+        ttk.Label(dialog, text="Select multiple campers (Ctrl/Cmd + click)", style="Muted.TLabel", font=("Helvetica", 10, "italic")).pack(pady=4)
 
         listbox = tk.Listbox(dialog, selectmode=tk.MULTIPLE)
         listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -418,19 +514,70 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                 messagebox.showinfo("Assign", "Select at least one camper.")
                 return
             camper_ids = [campers[idx]["id"] for idx in sel_indices]
-            assign_campers_to_activity(activity["id"], camper_ids)
-            messagebox.showinfo("Assign", f"Assigned {len(camper_ids)} camper(s) to activity.")
+            try:
+                assign_campers_to_activity(activity["id"], camper_ids)
+                message = f"Assigned {len(camper_ids)} camper(s) to activity."
+            except sqlite3.IntegrityError:
+                message = "Some selected campers aren’t in this camp; they were skipped."
+            messagebox.showinfo("Assign", message)
             dialog.destroy()
             load_activities()
 
-        tk.Button(dialog, text="Assign", command=assign_selected).pack(pady=6)
-        tk.Button(dialog, text="Cancel", command=dialog.destroy).pack(pady=6)
+        ttk.Button(dialog, text="Assign", command=assign_selected).pack(pady=6)
+        ttk.Button(dialog, text="Cancel", command=dialog.destroy).pack(pady=6)
 
-    activities_actions = tk.Frame(activities_frame)
+    activities_actions = ttk.Frame(activities_frame)
     activities_actions.pack(fill=tk.X, pady=4)
-    tk.Button(activities_actions, text="Create activity", command=create_activity_dialog).pack(side=tk.LEFT, padx=4)
-    tk.Button(activities_actions, text="Delete activity", command=delete_selected_activity).pack(side=tk.LEFT, padx=4)
-    tk.Button(activities_actions, text="Bulk assign campers", command=assign_campers_to_selected_activity).pack(side=tk.LEFT, padx=4)
+    ttk.Button(activities_actions, text="Create activity", command=create_activity_dialog).pack(side=tk.LEFT, padx=4)
+    def edit_selected_activity() -> None:
+        selection_assignment = assignments_table.selection()
+        if not selection_assignment:
+            messagebox.showinfo("Activity", "Select an assignment from 'Camps & Pay' tab first.")
+            return
+        assignment_id = int(selection_assignment[0])
+        assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
+        if assignment is None:
+            return
+        selection_activity = activities_table.selection()
+        if not selection_activity:
+            messagebox.showinfo("Activity", "Select an activity to edit.")
+            return
+        index = activities_table.index(selection_activity[0])
+        activities = list_camp_activities(assignment["camp_id"])
+        if index >= len(activities):
+            return
+        activity = activities[index]
+        dialog = tk.Toplevel(container)
+        dialog.title("Edit activity")
+        dialog.geometry("360x220")
+        ttk.Label(dialog, text="Activity name").pack(pady=4)
+        name_var = tk.StringVar(value=activity["name"])
+        ttk.Entry(dialog, textvariable=name_var, width=30).pack(pady=4)
+        ttk.Label(dialog, text="Date (YYYY-MM-DD)").pack(pady=4)
+        date_var = tk.StringVar(value=activity["date"])
+        ttk.Entry(dialog, textvariable=date_var, width=20).pack(pady=4)
+        def save_edit() -> None:
+            name = name_var.get().strip()
+            date = date_var.get().strip()
+            if not name or not date:
+                messagebox.showwarning("Activity", "Name and date required.")
+                return
+            try:
+                import pandas as pd
+                pd.to_datetime(date)
+            except Exception:
+                messagebox.showerror("Activity", "Invalid date format. Use YYYY-MM-DD.")
+                return
+            if not update_activity(activity["id"], assignment["camp_id"], name, date):
+                messagebox.showerror("Activity", "Failed to update activity.")
+                return
+            dialog.destroy()
+            load_activities()
+        ttk.Button(dialog, text="Save", command=save_edit).pack(pady=8)
+        ttk.Button(dialog, text="Cancel", command=dialog.destroy).pack(pady=4)
+    ttk.Button(activities_actions, text="Edit activity", command=edit_selected_activity).pack(side=tk.LEFT, padx=4)
+    ttk.Button(activities_actions, text="Delete activity", command=delete_selected_activity).pack(side=tk.LEFT, padx=4)
+    ttk.Button(activities_actions, text="Bulk assign campers", command=assign_campers_to_selected_activity).pack(side=tk.LEFT, padx=4)
 
     def refresh_current_assignment_details() -> None:
         load_campers_for_selection()
@@ -448,8 +595,17 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     reports_frame = tk.LabelFrame(tab_reports, text="Daily reports for selected camp", padx=10, pady=10)
     reports_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
 
-    reports_table = Table(reports_frame, columns=["Date", "Notes"])
-    reports_table.pack(fill=tk.BOTH, expand=True, pady=4)
+    # Reports table with vertical scrollbar
+    reports_container = ttk.Frame(reports_frame)
+    reports_container.pack(fill=tk.BOTH, expand=True)
+    reports_table = Table(reports_container, columns=["Date", "Notes"])
+    reports_scroll = ttk.Scrollbar(reports_container, orient="vertical", command=reports_table.yview)
+    reports_table.configure(yscrollcommand=reports_scroll.set)
+    reports_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
+    reports_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
+
+    reports_empty_label = ttk.Label(reports_frame, text="No reports for the selected camp.", style="Muted.TLabel")
+    reports_empty_label.pack_forget()
 
     def refresh_daily_reports() -> None:
         reports_table.load_rows([])
@@ -461,9 +617,21 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         if assignment is None:
             return
         reports = list_daily_reports(leader_id, assignment["camp_id"])
-        reports_table.load_rows([(report["date"], report["notes"]) for report in reports])
+        rows = [(report["date"], report["notes"]) for report in reports]
+        reports_table.load_rows(rows)
+        # Zebra-striping after load
+        palette = get_palette(reports_table)
+        reports_table.tag_configure("even", background=palette["surface"])
+        reports_table.tag_configure("odd", background=tint(palette["surface"], -0.03))
+        for idx, item_id in enumerate(reports_table.get_children()):
+            reports_table.item(item_id, tags=("odd",) if (idx % 2 == 1) else ("even",))
+        # Empty state toggle
+        if not rows:
+            reports_empty_label.pack(pady=(0, 4), anchor=tk.W)
+        else:
+            reports_empty_label.pack_forget()
 
-    def create_or_edit_report() -> None:
+    def add_report() -> None:
         selection = assignments_table.selection()
         if not selection:
             messagebox.showinfo("Report", "Select an assignment from 'Camps & Pay' tab first.")
@@ -474,14 +642,14 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             return
 
         dialog = tk.Toplevel(container)
-        dialog.title("Daily report")
+        dialog.title("Add daily report")
         dialog.geometry("480x360")
 
-        tk.Label(dialog, text="Date (YYYY-MM-DD)").pack(pady=4)
+        ttk.Label(dialog, text="Date (YYYY-MM-DD)").pack(pady=4)
         date_var = tk.StringVar()
-        tk.Entry(dialog, textvariable=date_var, width=20).pack(pady=4)
+        ttk.Entry(dialog, textvariable=date_var, width=20).pack(pady=4)
 
-        tk.Label(dialog, text="Report / notes").pack(pady=4)
+        ttk.Label(dialog, text="Report / notes").pack(pady=4)
         text_widget = tk.Text(dialog, height=10, width=50)
         text_widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
 
@@ -498,12 +666,69 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             dialog.destroy()
             refresh_daily_reports()
 
-        tk.Button(dialog, text="Save", command=save_report).pack(pady=6)
-        tk.Button(dialog, text="Cancel", command=dialog.destroy).pack(pady=4)
+        ttk.Button(dialog, text="Save", command=save_report).pack(pady=6)
+        ttk.Button(dialog, text="Cancel", command=dialog.destroy).pack(pady=4)
 
-    reports_actions = tk.Frame(reports_frame)
+    def edit_report() -> None:
+        selection = assignments_table.selection()
+        if not selection:
+            messagebox.showinfo("Report", "Select an assignment from 'Camps & Pay' tab first.")
+            return
+        assignment_id = int(selection[0])
+        assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
+        if assignment is None:
+            return
+        # Require selecting a report row
+        report_sel = reports_table.selection()
+        if not report_sel:
+            messagebox.showinfo("Report", "Select a report row to edit.")
+            return
+        idx = reports_table.index(report_sel[0])
+        # Fetch current data
+        current_rows = reports_table.get_children()
+        if idx >= len(current_rows):
+            return
+        item_id = current_rows[idx]
+        values = reports_table.item(item_id, "values")
+        original_date = values[0]
+        original_notes = values[1]
+
+        dialog = tk.Toplevel(container)
+        dialog.title("Edit daily report")
+        dialog.geometry("480x380")
+
+        ttk.Label(dialog, text="Date (YYYY-MM-DD)").pack(pady=4)
+        date_var = tk.StringVar(value=original_date)
+        ttk.Entry(dialog, textvariable=date_var, width=20).pack(pady=4)
+
+        ttk.Label(dialog, text="Report / notes").pack(pady=4)
+        text_widget = tk.Text(dialog, height=10, width=50)
+        text_widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+        text_widget.insert("1.0", original_notes)
+
+        def save_edit() -> None:
+            new_date = date_var.get().strip()
+            new_notes = text_widget.get("1.0", tk.END).strip()
+            if not new_date:
+                messagebox.showwarning("Report", "Date required.")
+                return
+            if not new_notes:
+                messagebox.showwarning("Report", "Notes required (cannot save empty report).")
+                return
+            # If date changed, delete old row first to avoid duplicate entries
+            if new_date != original_date:
+                delete_daily_report(leader_id, assignment["camp_id"], original_date)
+            save_daily_report(leader_id, assignment["camp_id"], new_date, new_notes)
+            dialog.destroy()
+            refresh_daily_reports()
+
+        ttk.Button(dialog, text="Save", command=save_edit).pack(pady=6)
+        ttk.Button(dialog, text="Cancel", command=dialog.destroy).pack(pady=4)
+
+    reports_actions = ttk.Frame(reports_frame)
     reports_actions.pack(fill=tk.X, pady=4)
-    tk.Button(reports_actions, text="Add/Edit report", command=create_or_edit_report).pack(side=tk.LEFT, padx=4)
+    ttk.Button(reports_actions, text="Add report", command=add_report).pack(side=tk.LEFT, padx=4)
+    ttk.Button(reports_actions, text="Edit report", command=edit_report).pack(side=tk.LEFT, padx=4)
 
     # ========== Tab 5: Statistics ==========
     tab_stats = tk.Frame(notebook)
@@ -511,14 +736,30 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     tk.Label(tab_stats, text="Statistics & Trends for All Camps Led", font=("Helvetica", 14, "bold")).pack(pady=8)
 
-    stats_container = tk.Frame(tab_stats)
+    stats_container = ttk.Frame(tab_stats)
     stats_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
 
-    stats_table = Table(
-        stats_container,
-        columns=["Camp", "Area", "Days", "Campers", "Attending", "Participation %", "Activities", "Food/Day", "Total Food", "Reports"]
-    )
-    stats_table.pack(fill=tk.BOTH, expand=True, pady=4)
+    # Stats table with vertical scrollbar
+    stats_table_columns = ["Camp", "Area", "Days", "Campers", "Attending", "Participation %", "Activities", "Food/Day", "Total Food", "Reports"]
+    stats_table_container = ttk.Frame(stats_container)
+    stats_table_container.pack(fill=tk.BOTH, expand=True)
+    stats_table = Table(stats_table_container, columns=stats_table_columns)
+    stats_scroll = ttk.Scrollbar(stats_table_container, orient="vertical", command=stats_table.yview)
+    stats_table.configure(yscrollcommand=stats_scroll.set)
+    stats_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
+    stats_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
+
+    # Align headers/cells
+    stats_table.heading("Camp", text="Camp", anchor=tk.W)
+    stats_table.column("Camp", anchor=tk.W, width=160)
+    stats_table.heading("Area", text="Area", anchor=tk.W)
+    stats_table.column("Area", anchor=tk.W, width=120)
+    for col in ["Days", "Campers", "Attending", "Participation %", "Activities", "Food/Day", "Total Food", "Reports"]:
+        stats_table.heading(col, text=col, anchor=tk.CENTER)
+        stats_table.column(col, anchor=tk.CENTER)
+
+    stats_empty_label = ttk.Label(stats_container, text="No statistics to display.", style="Muted.TLabel")
+    stats_empty_label.pack_forget()
 
     def refresh_statistics() -> None:
         stats = get_leader_statistics(leader_id)
@@ -537,10 +778,22 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                 stat["incident_report_count"],
             ))
         stats_table.load_rows(rows)
+        # Zebra-striping after load
+        palette = get_palette(stats_table)
+        stats_table.tag_configure("even", background=palette["surface"])
+        stats_table.tag_configure("odd", background=tint(palette["surface"], -0.03))
+        for idx, item_id in enumerate(stats_table.get_children()):
+            stats_table.item(item_id, tags=("odd",) if (idx % 2 == 1) else ("even",))
+        # Empty state toggle
+        if not rows:
+            stats_empty_label.pack(pady=(0, 4), anchor=tk.W)
+        else:
+            stats_empty_label.pack_forget()
 
     # Summary panel
-    summary_frame = tk.LabelFrame(tab_stats, text="Summary across all camps", padx=10, pady=10)
-    summary_frame.pack(fill=tk.X, padx=10, pady=6)
+    ttk.Label(tab_stats, text="Summary across all camps", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, padx=10, pady=(6, 2))
+    summary_frame = ttk.Frame(tab_stats, style="Card.TFrame", padding=10)
+    summary_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
 
     summary_text = tk.Text(summary_frame, height=6, state="disabled")
     summary_text.pack(fill=tk.X, pady=4)
@@ -585,7 +838,8 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         tab_chat,
         post_callback=lambda content: post_message(leader_id, content),
         fetch_callback=lambda: list_messages_lines(),
+        current_user=user.get("username"),
     ).pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-    return container
+    return scroll
 

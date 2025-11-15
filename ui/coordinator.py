@@ -18,17 +18,19 @@ from services import (
     set_daily_pay_rate,
     update_camp,
 )
-from ui.components import BarChart, DualBarChart, MessageBoard
+from ui.components import BarChart, DualBarChart, MessageBoard, ScrollFrame
+from ui.theme import get_palette, tint
 
 
 def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callable[[], None]) -> tk.Frame:
-    container = tk.Frame(root)
+    scroll = ScrollFrame(root)
+    container = scroll.content
 
-    header = tk.Frame(container)
+    header = ttk.Frame(container)
     header.pack(fill=tk.X, padx=10, pady=8)
 
     tk.Label(header, text="Coordinator Dashboard", font=("Helvetica", 16, "bold")).pack(side=tk.LEFT)
-    tk.Button(header, text="Logout", command=logout_callback).pack(side=tk.RIGHT)
+    ttk.Button(header, text="Logout", command=logout_callback).pack(side=tk.RIGHT)
 
     notebook = ttk.Notebook(container)
     notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
@@ -37,12 +39,12 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     tab_camps = tk.Frame(notebook)
     notebook.add(tab_camps, text="Camps")
 
-    pay_frame = tk.Frame(tab_camps)
-    pay_frame.pack(fill=tk.X, padx=10, pady=4)
-
-    tk.Label(pay_frame, text="Daily pay rate per leader (currency units)").pack(side=tk.LEFT)
+    pay_frame_title = ttk.Label(tab_camps, text="Daily pay rate per leader (currency units)", font=("Helvetica", 11, "bold"))
+    pay_frame_title.pack(anchor=tk.W, padx=10, pady=(6, 2))
+    pay_frame = ttk.Frame(tab_camps, style="Card.TFrame", padding=10)
+    pay_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
     daily_rate_var = tk.StringVar(value=get_daily_pay_rate())
-    daily_rate_entry = tk.Entry(pay_frame, textvariable=daily_rate_var, width=10)
+    daily_rate_entry = ttk.Entry(pay_frame, textvariable=daily_rate_var, width=10)
     daily_rate_entry.pack(side=tk.LEFT, padx=6)
 
     def save_daily_rate() -> None:
@@ -53,7 +55,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         set_daily_pay_rate(value)
         messagebox.showinfo("Daily pay rate", "Updated successfully.")
 
-    tk.Button(pay_frame, text="Save", command=save_daily_rate).pack(side=tk.LEFT)
+    ttk.Button(pay_frame, text="Save", command=save_daily_rate, style="Primary.TButton").pack(side=tk.LEFT)
 
     camps_frame = tk.LabelFrame(tab_camps, text="Camp list", padx=10, pady=10)
     camps_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
@@ -71,23 +73,53 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         "Top-up Δ",
         "Effective Daily",
     )
-    camps_table = ttk.Treeview(camps_frame, columns=columns, show="headings", height=10)
+    # Table container with vertical scrollbar
+    table_container = ttk.Frame(camps_frame)
+    table_container.pack(fill=tk.BOTH, expand=True)
+    camps_table = ttk.Treeview(table_container, columns=columns, show="headings", height=10)
+    camps_scroll = ttk.Scrollbar(table_container, orient="vertical", command=camps_table.yview)
+    camps_table.configure(yscrollcommand=camps_scroll.set)
     for col in columns:
         camps_table.heading(col, text=col)
         camps_table.column(col, width=100)
-    camps_table.column("Name", width=140)
-    camps_table.column("Location", width=120)
-    camps_table.column("Leaders", width=120)
-    camps_table.column("Start", width=90)
-    camps_table.column("End", width=90)
-    camps_table.pack(fill=tk.BOTH, expand=True, pady=4)
+    # Header and cell alignment for readability
+    camps_table.heading("Name", anchor=tk.W)
+    camps_table.column("Name", width=140, anchor=tk.W)
+    camps_table.heading("Location", anchor=tk.W)
+    camps_table.column("Location", width=120, anchor=tk.W)
+    camps_table.heading("Area", anchor=tk.CENTER)
+    camps_table.column("Area", anchor=tk.CENTER)
+    camps_table.heading("Type", anchor=tk.CENTER)
+    camps_table.column("Type", anchor=tk.CENTER)
+    camps_table.heading("Leaders", anchor=tk.CENTER)
+    camps_table.column("Leaders", width=120, anchor=tk.CENTER)
+    camps_table.heading("Start", anchor=tk.CENTER)
+    camps_table.column("Start", width=90, anchor=tk.CENTER)
+    camps_table.heading("End", anchor=tk.CENTER)
+    camps_table.column("End", width=90, anchor=tk.CENTER)
+    camps_table.heading("Daily Food", anchor=tk.CENTER)
+    camps_table.column("Daily Food", anchor=tk.CENTER)
+    camps_table.heading("Default Food/Person", anchor=tk.CENTER)
+    camps_table.column("Default Food/Person", anchor=tk.CENTER)
+    camps_table.heading("Top-up Δ", anchor=tk.CENTER)
+    camps_table.column("Top-up Δ", anchor=tk.CENTER)
+    camps_table.heading("Effective Daily", anchor=tk.CENTER)
+    camps_table.column("Effective Daily", anchor=tk.CENTER)
+    camps_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
+    camps_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
 
-    form_frame = tk.LabelFrame(tab_camps, text="Create / Update Camp", padx=10, pady=10)
-    form_frame.pack(fill=tk.X, padx=10, pady=6)
+    # Empty state label (hidden unless no camps)
+    camps_empty_label = ttk.Label(camps_frame, text="No camps available. Create one above.", style="Muted.TLabel")
+    camps_empty_label.pack_forget()
+
+    ttk.Label(tab_camps, text="Create / Update Camp", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, padx=10, pady=(6, 2))
+    form_frame = ttk.Frame(tab_camps, style="Card.TFrame", padding=10)
+    form_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
 
     name_var = tk.StringVar()
     location_var = tk.StringVar()
     area_var = tk.StringVar()
+    leaders_var = tk.StringVar()
     type_var = tk.StringVar(value="day")
     start_var = tk.StringVar()
     end_var = tk.StringVar()
@@ -95,35 +127,59 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     default_food_var = tk.StringVar(value="0")
 
     # Two-column compact layout
-    tk.Label(form_frame, text="Name").grid(row=0, column=0, sticky=tk.W, padx=4, pady=2)
-    tk.Entry(form_frame, textvariable=name_var, width=25).grid(row=0, column=1, sticky=tk.W, padx=4, pady=2)
+    ttk.Label(form_frame, text="Name").grid(row=0, column=0, sticky=tk.W, padx=4, pady=2)
+    ttk.Entry(form_frame, textvariable=name_var, width=25).grid(row=0, column=1, sticky=tk.W, padx=4, pady=2)
     
-    tk.Label(form_frame, text="Location").grid(row=0, column=2, sticky=tk.W, padx=4, pady=2)
-    tk.Entry(form_frame, textvariable=location_var, width=25).grid(row=0, column=3, sticky=tk.W, padx=4, pady=2)
+    ttk.Label(form_frame, text="Location").grid(row=0, column=2, sticky=tk.W, padx=4, pady=2)
+    ttk.Entry(form_frame, textvariable=location_var, width=25).grid(row=0, column=3, sticky=tk.W, padx=4, pady=2)
     
-    tk.Label(form_frame, text="Area").grid(row=1, column=0, sticky=tk.W, padx=4, pady=2)
-    tk.Entry(form_frame, textvariable=area_var, width=25).grid(row=1, column=1, sticky=tk.W, padx=4, pady=2)
+    ttk.Label(form_frame, text="Area").grid(row=1, column=0, sticky=tk.W, padx=4, pady=2)
+    ttk.Entry(form_frame, textvariable=area_var, width=25).grid(row=1, column=1, sticky=tk.W, padx=4, pady=2)
     
-    tk.Label(form_frame, text="Type").grid(row=1, column=2, sticky=tk.W, padx=4, pady=2)
-    ttk.Combobox(
+    ttk.Label(form_frame, text="Type").grid(row=1, column=2, sticky=tk.W, padx=4, pady=2)
+    type_menu = ttk.Combobox(
         form_frame,
         textvariable=type_var,
         values=["day", "overnight", "expedition"],
         state="readonly",
         width=22,
-    ).grid(row=1, column=3, sticky=tk.W, padx=4, pady=2)
+        style="Filled.TCombobox",
+        exportselection=False,
+    )
+    type_menu.grid(row=1, column=3, sticky=tk.W, padx=4, pady=2)
+    def _on_type_selected(evt) -> None:
+        w = evt.widget
+        try:
+            w.selection_clear()
+        except Exception:
+            try:
+                w.selection_clear(0, "end")
+            except Exception:
+                pass
+        try:
+            w.selection_range(0, 0)
+        except Exception:
+            pass
+        try:
+            form_frame.focus_set()
+        except Exception:
+            pass
+    type_menu.bind("<<ComboboxSelected>>", _on_type_selected)
     
-    tk.Label(form_frame, text="Start date").grid(row=2, column=0, sticky=tk.W, padx=4, pady=2)
-    tk.Entry(form_frame, textvariable=start_var, width=25).grid(row=2, column=1, sticky=tk.W, padx=4, pady=2)
+    ttk.Label(form_frame, text="Leaders").grid(row=2, column=0, sticky=tk.W, padx=4, pady=2)
+    ttk.Entry(form_frame, textvariable=leaders_var, width=25, state="readonly").grid(row=2, column=1, sticky=tk.W, padx=4, pady=2)
     
-    tk.Label(form_frame, text="End date").grid(row=2, column=2, sticky=tk.W, padx=4, pady=2)
-    tk.Entry(form_frame, textvariable=end_var, width=25).grid(row=2, column=3, sticky=tk.W, padx=4, pady=2)
+    ttk.Label(form_frame, text="Start date").grid(row=3, column=0, sticky=tk.W, padx=4, pady=2)
+    ttk.Entry(form_frame, textvariable=start_var, width=25).grid(row=3, column=1, sticky=tk.W, padx=4, pady=2)
     
-    tk.Label(form_frame, text="Daily food units").grid(row=3, column=0, sticky=tk.W, padx=4, pady=2)
-    tk.Entry(form_frame, textvariable=daily_food_var, width=25).grid(row=3, column=1, sticky=tk.W, padx=4, pady=2)
+    ttk.Label(form_frame, text="End date").grid(row=3, column=2, sticky=tk.W, padx=4, pady=2)
+    ttk.Entry(form_frame, textvariable=end_var, width=25).grid(row=3, column=3, sticky=tk.W, padx=4, pady=2)
     
-    tk.Label(form_frame, text="Default food/camper/day").grid(row=3, column=2, sticky=tk.W, padx=4, pady=2)
-    tk.Entry(form_frame, textvariable=default_food_var, width=25).grid(row=3, column=3, sticky=tk.W, padx=4, pady=2)
+    ttk.Label(form_frame, text="Daily food units").grid(row=4, column=0, sticky=tk.W, padx=4, pady=2)
+    ttk.Entry(form_frame, textvariable=daily_food_var, width=25).grid(row=4, column=1, sticky=tk.W, padx=4, pady=2)
+    
+    ttk.Label(form_frame, text="Default food/camper/day").grid(row=4, column=2, sticky=tk.W, padx=4, pady=2)
+    ttk.Entry(form_frame, textvariable=default_food_var, width=25).grid(row=4, column=3, sticky=tk.W, padx=4, pady=2)
 
     selected_camp_id: Optional[int] = None
 
@@ -133,6 +189,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         name_var.set("")
         location_var.set("")
         area_var.set("")
+        leaders_var.set("")
         type_var.set("day")
         start_var.set("")
         end_var.set("")
@@ -148,14 +205,17 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         selected_camp_id = int(selection[0])
         item = camps_table.item(selection[0])
         values = item["values"]
-        name_var.set(values[0])
-        location_var.set(values[1])
-        area_var.set(values[2])
-        type_var.set(values[3])
-        start_var.set(values[4])
-        end_var.set(values[5])
-        daily_food_var.set(str(values[6]))
-        default_food_var.set(str(values[7]))
+        # Map by column name to avoid index drift
+        vals = dict(zip(columns, values))
+        name_var.set(vals.get("Name", ""))
+        location_var.set(vals.get("Location", ""))
+        area_var.set(vals.get("Area", ""))
+        type_var.set(vals.get("Type", "day"))
+        leaders_var.set(vals.get("Leaders", ""))
+        start_var.set(vals.get("Start", ""))
+        end_var.set(vals.get("End", ""))
+        daily_food_var.set(str(vals.get("Daily Food", "0")))
+        default_food_var.set(str(vals.get("Default Food/Person", "0")))
 
     def validate_int(var: str, label: str) -> Optional[int]:
         if not var.strip().lstrip('-').isdigit():
@@ -220,11 +280,11 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         load_camps()
         reset_form()
 
-    button_row = tk.Frame(form_frame)
-    button_row.grid(row=4, column=0, columnspan=4, pady=8)
-    tk.Button(button_row, text="Create", command=lambda: create_or_updateCamp(False), width=12).pack(side=tk.LEFT, padx=4)
-    tk.Button(button_row, text="Update", command=lambda: create_or_updateCamp(True), width=12).pack(side=tk.LEFT, padx=4)
-    tk.Button(button_row, text="Clear", command=reset_form, width=12).pack(side=tk.LEFT, padx=4)
+    button_row = ttk.Frame(form_frame)
+    button_row.grid(row=5, column=0, columnspan=4, pady=8)
+    ttk.Button(button_row, text="Create", command=lambda: create_or_updateCamp(False), width=12).pack(side=tk.LEFT, padx=4)
+    ttk.Button(button_row, text="Update", command=lambda: create_or_updateCamp(True), width=12).pack(side=tk.LEFT, padx=4)
+    ttk.Button(button_row, text="Clear", command=reset_form, width=12).pack(side=tk.LEFT, padx=4)
 
     def delete_selected_camp() -> None:
         selection = camps_table.selection()
@@ -240,24 +300,25 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         load_camps()
         reset_form()
 
-    tk.Button(camps_frame, text="Select", command=select_camp).pack(side=tk.LEFT, padx=4)
-    tk.Button(camps_frame, text="Delete", command=delete_selected_camp).pack(side=tk.LEFT, padx=4)
+    ttk.Button(camps_frame, text="Select", command=select_camp).pack(side=tk.LEFT, padx=4)
+    ttk.Button(camps_frame, text="Delete", command=delete_selected_camp).pack(side=tk.LEFT, padx=4)
 
     # ========== Tab 2: Stock Management ==========
     tab_stock = tk.Frame(notebook)
     notebook.add(tab_stock, text="Stock Management")
 
-    topup_frame = tk.LabelFrame(tab_stock, text="Top up daily food", padx=10, pady=10)
-    topup_frame.pack(fill=tk.X, padx=10, pady=6)
+    ttk.Label(tab_stock, text="Top up daily food", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, padx=10, pady=(6, 2))
+    topup_frame = ttk.Frame(tab_stock, style="Card.TFrame", padding=10)
+    topup_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
 
-    tk.Label(topup_frame, text="Select a camp from 'Camps' tab, then apply a delta:").pack(pady=4)
+    ttk.Label(topup_frame, text="Select a camp from 'Camps' tab, then apply a delta:").pack(pady=4, anchor=tk.W)
 
-    topup_input_frame = tk.Frame(topup_frame)
+    topup_input_frame = ttk.Frame(topup_frame)
     topup_input_frame.pack(fill=tk.X, pady=4)
 
     topup_var = tk.StringVar(value="0")
-    tk.Label(topup_input_frame, text="Delta units per day (+/-)").pack(side=tk.LEFT, padx=4)
-    tk.Entry(topup_input_frame, textvariable=topup_var, width=10).pack(side=tk.LEFT, padx=4)
+    ttk.Label(topup_input_frame, text="Delta units per day (+/-)").pack(side=tk.LEFT, padx=4)
+    ttk.Entry(topup_input_frame, textvariable=topup_var, width=10).pack(side=tk.LEFT, padx=4)
 
     def apply_topup() -> None:
         selection = camps_table.selection()
@@ -278,13 +339,18 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         topup_var.set("0")
         refresh_topup_history()
 
-    tk.Button(topup_input_frame, text="Apply", command=apply_topup).pack(side=tk.LEFT, padx=4)
+    ttk.Button(topup_input_frame, text="Apply", command=apply_topup, style="Primary.TButton").pack(side=tk.LEFT, padx=4)
 
-    history_frame = tk.LabelFrame(tab_stock, text="Top-up history for selected camp", padx=10, pady=10)
-    history_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+    ttk.Label(tab_stock, text="Top-up history for selected camp", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, padx=10, pady=(6, 2))
+    history_frame = ttk.Frame(tab_stock, style="Card.TFrame", padding=10)
+    history_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
 
-    history = tk.Text(history_frame, height=12, state="disabled")
-    history.pack(fill=tk.BOTH, expand=True, pady=4)
+    # Text area with themed scrollbar
+    history_scroll = ttk.Scrollbar(history_frame, orient="vertical")
+    history = tk.Text(history_frame, height=12, state="disabled", yscrollcommand=history_scroll.set)
+    history_scroll.config(command=history.yview)
+    history.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
+    history_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
     def refresh_topup_history() -> None:
         selection = camps_table.selection()
@@ -314,7 +380,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     tab_analytics = tk.Frame(notebook)
     notebook.add(tab_analytics, text="Analytics")
 
-    charts_container = tk.Frame(tab_analytics)
+    charts_container = ttk.Frame(tab_analytics)
     charts_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
 
     chart_campers = BarChart(charts_container, width=360, height=220)
@@ -329,29 +395,49 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     chart_area.grid(row=1, column=1, padx=6, pady=6)
     chart_food.grid(row=0, column=2, rowspan=2, padx=6, pady=6)
 
-    tk.Label(tab_analytics, text="Charts computed using NumPy & Pandas", font=("Helvetica", 9, "italic"), fg="#666").pack(pady=4)
+    # Removed muted subtitle to keep the UI clean
 
-    alerts_frame = tk.LabelFrame(tab_analytics, text="Food shortage alerts", padx=10, pady=10)
-    alerts_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+    ttk.Label(tab_analytics, text="Food shortage alerts", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, padx=10, pady=(6, 2))
+    alerts_frame = ttk.Frame(tab_analytics, style="Card.TFrame", padding=10)
+    alerts_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
 
-    alerts_list = tk.Listbox(alerts_frame, height=8)
-    alerts_list.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
+    # Replace Listbox with a styled read-only Text area + scrollbar for nicer formatting
+    alerts_scroll = ttk.Scrollbar(alerts_frame, orient="vertical")
+    alerts_text = tk.Text(
+        alerts_frame,
+        height=10,
+        wrap="word",
+        state="disabled",
+        yscrollcommand=alerts_scroll.set,
+    )
+    alerts_scroll.config(command=alerts_text.yview)
+    alerts_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=6, pady=4)
+    alerts_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
     def refresh_alerts() -> None:
-        alerts_list.delete(0, tk.END)
         alerts = get_food_shortage_alerts()
+        alerts_text.config(state="normal")
+        alerts_text.delete("1.0", tk.END)
         if not alerts:
-            alerts_list.insert(tk.END, "No shortages detected.")
+            alerts_text.insert(tk.END, "No shortages detected.\n")
+            alerts_text.config(state="disabled")
             return
-        for alert in alerts:
-            alerts_list.insert(tk.END, f"Camp {alert['camp_name']}: shortages on {len(alert['shortages'])} day(s)")
+        for idx, alert in enumerate(alerts, start=1):
+            camp_name = alert["camp_name"]
+            days = len(alert["shortages"])
+            # Header line for each camp
+            alerts_text.insert(tk.END, f"• {camp_name} — {days} shortage day(s)\n")
+            # Detail lines (up to 5)
             for day in alert["shortages"][:5]:
-                alerts_list.insert(
+                alerts_text.insert(
                     tk.END,
-                    f"  {day['date']} needs {abs(day['gap'])} more units",
+                    f"    – {day['date']}: needs {abs(day['gap'])} unit(s)\n",
                 )
             if len(alert["shortages"]) > 5:
-                alerts_list.insert(tk.END, "  …")
+                alerts_text.insert(tk.END, "    …\n")
+            if idx < len(alerts):
+                alerts_text.insert(tk.END, "\n")
+        alerts_text.config(state="disabled")
 
     def refresh_charts() -> None:
         stats = get_coordinator_dashboard_stats()
@@ -367,7 +453,19 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     def load_camps() -> None:
         camps_table.delete(*camps_table.get_children())
-        for camp in list_camps():
+        palette = get_palette(camps_table)
+        # Configure zebra striping
+        camps_table.tag_configure("even", background=palette["surface"])
+        camps_table.tag_configure("odd", background=tint(palette["surface"], -0.03))
+
+        camps = list_camps()
+        if not camps:
+            camps_empty_label.pack(pady=(4, 0), anchor=tk.W)
+            return
+        else:
+            camps_empty_label.pack_forget()
+
+        for idx, camp in enumerate(camps):
             camps_table.insert(
                 "",
                 tk.END,
@@ -385,6 +483,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                     camp["topup_delta"],
                     camp["effective_daily_food"],
                 ),
+                tags=("odd",) if (idx % 2 == 1) else ("even",),
             )
         refresh_charts()
         refresh_alerts()
@@ -400,8 +499,9 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         tab_chat,
         post_callback=lambda content: post_message(user.get("id"), content),
         fetch_callback=lambda: list_messages_lines(),
+        current_user=user.get("username"),
     ).pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-    return container
+    return scroll
 
 

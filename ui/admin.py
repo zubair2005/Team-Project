@@ -13,17 +13,19 @@ from services import (
     update_user_enabled,
     update_user_username,
 )
-from ui.components import MessageBoard
+from ui.components import MessageBoard, ScrollFrame
+from ui.theme import get_palette, tint
 
 
 def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callable[[], None]) -> tk.Frame:
-    container = tk.Frame(root)
+    scroll = ScrollFrame(root)
+    container = scroll.content
 
-    header = tk.Frame(container)
+    header = ttk.Frame(container)
     header.pack(fill=tk.X, pady=8, padx=10)
 
     tk.Label(header, text="Administrator Dashboard", font=("Helvetica", 16, "bold")).pack(side=tk.LEFT)
-    tk.Button(header, text="Logout", command=logout_callback).pack(side=tk.RIGHT)
+    ttk.Button(header, text="Logout", command=logout_callback).pack(side=tk.RIGHT)
 
     notebook = ttk.Notebook(container)
     notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
@@ -32,48 +34,105 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     tab_users = tk.Frame(notebook)
     notebook.add(tab_users, text="User Management")
 
-    manage_frame = tk.LabelFrame(tab_users, text="User Accounts", padx=10, pady=10)
-    manage_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    ttk.Label(tab_users, text="User Accounts", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, padx=10, pady=(10, 2))
+    manage_frame = ttk.Frame(tab_users, style="Card.TFrame", padding=10)
+    manage_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
 
-    table = ttk.Treeview(manage_frame, columns=("Username", "Role", "Enabled"), show="headings", height=12)
-    table.heading("Username", text="Username")
-    table.heading("Role", text="Role")
-    table.heading("Enabled", text="Enabled")
-    table.column("Username", width=140)
-    table.column("Role", width=120)
-    table.column("Enabled", width=80)
-    table.pack(fill=tk.BOTH, expand=True, pady=4)
+    # Users table container with vertical scrollbar
+    table_container = ttk.Frame(manage_frame)
+    table_container.pack(fill=tk.BOTH, expand=True)
+    table = ttk.Treeview(table_container, columns=("Username", "Role", "Enabled"), show="headings", height=12)
+    table_scroll = ttk.Scrollbar(table_container, orient="vertical", command=table.yview)
+    table.configure(yscrollcommand=table_scroll.set)
+    table.heading("Username", text="Username", anchor=tk.W)
+    table.heading("Role", text="Role", anchor=tk.CENTER)
+    table.heading("Enabled", text="Enabled", anchor=tk.CENTER)
+    table.column("Username", width=140, anchor=tk.W)
+    table.column("Role", width=120, anchor=tk.CENTER)
+    table.column("Enabled", width=80, anchor=tk.CENTER)
+    table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
+    table_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
+
+    # Empty state label (hidden unless no users)
+    empty_label = ttk.Label(manage_frame, text="No users to display.", style="Muted.TLabel")
+    empty_label.pack_forget()
 
     user_cache: Dict[int, Dict[str, str]] = {}
 
     def refresh_users() -> None:
         table.delete(*table.get_children())
         user_cache.clear()
-        for row in list_users():
+        palette = get_palette(table)
+        # Zebra striping
+        table.tag_configure("even", background=palette["surface"])
+        table.tag_configure("odd", background=tint(palette["surface"], -0.03))
+        users = list_users()
+        if not users:
+            empty_label.pack(pady=(4, 0), anchor=tk.W)
+            return
+        else:
+            empty_label.pack_forget()
+        for idx, row in enumerate(users):
             user_cache[row["id"]] = row
+            tags = []
+            if not row["enabled"]:
+                tags.append("disabled")
+            tags.append("odd" if (idx % 2 == 1) else "even")
             table.insert(
                 "",
                 tk.END,
                 iid=row["id"],
                 values=(row["username"], row["role"], "Yes" if row["enabled"] else "No"),
-                tags=("disabled",) if not row["enabled"] else (),
+                tags=tuple(tags),
             )
 
     table.tag_configure("disabled", foreground="#888888")
 
     refresh_users()
 
-    form_frame = tk.Frame(manage_frame)
+    form_frame = ttk.Frame(manage_frame)
     form_frame.pack(fill=tk.X, pady=6)
 
-    tk.Label(form_frame, text="Username").grid(row=0, column=0, padx=4, pady=2, sticky=tk.W)
-    username_entry = tk.Entry(form_frame, width=20)
+    ttk.Label(form_frame, text="Username", font=("Helvetica", 11)).grid(row=0, column=0, padx=4, pady=2, sticky=tk.W)
+    username_entry = ttk.Entry(form_frame, width=20)
     username_entry.grid(row=0, column=1, padx=4, pady=2)
 
-    tk.Label(form_frame, text="Role").grid(row=0, column=2, padx=4, pady=2, sticky=tk.W)
+    ttk.Label(form_frame, text="Role", font=("Helvetica", 11)).grid(row=0, column=2, padx=4, pady=2, sticky=tk.W)
     role_var = tk.StringVar(value="leader")
-    role_menu = ttk.Combobox(form_frame, textvariable=role_var, values=["leader", "coordinator"], state="readonly", width=15)
+    role_menu = ttk.Combobox(
+        form_frame,
+        textvariable=role_var,
+        values=["leader", "coordinator"],
+        state="readonly",
+        width=15,
+        style="Filled.TCombobox",
+        exportselection=False,
+    )
     role_menu.grid(row=0, column=3, padx=4, pady=2)
+    def _on_combo_selected(evt) -> None:
+        # Ensure no lingering text selection in readonly state
+        w = evt.widget
+        try:
+            w.selection_clear()
+        except Exception:
+            try:
+                w.selection_clear(0, "end")
+            except Exception:
+                pass
+        try:
+            w.selection_range(0, 0)
+        except Exception:
+            pass
+        try:
+            w.icursor("end")
+        except Exception:
+            pass
+        # Optionally shift focus away so macOS doesn't draw focus glow
+        try:
+            form_frame.focus_set()
+        except Exception:
+            pass
+    role_menu.bind("<<ComboboxSelected>>", _on_combo_selected)
 
     def create_user_action() -> None:
         username = username_entry.get().strip()
@@ -95,12 +154,12 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         username_entry.delete(0, tk.END)
         refresh_users()
 
-    tk.Button(form_frame, text="Create User", command=create_user_action).grid(row=0, column=4, padx=4, pady=2)
+    ttk.Button(form_frame, text="Create User", command=create_user_action).grid(row=0, column=4, padx=4, pady=2)
 
-    selection_frame = tk.Frame(manage_frame)
+    selection_frame = ttk.Frame(manage_frame)
     selection_frame.pack(fill=tk.X, pady=4)
 
-    tk.Label(selection_frame, text="Select a user row, then:", font=("Helvetica", 10, "bold")).pack(side=tk.LEFT, padx=4)
+    ttk.Label(selection_frame, text="Select a user row, then:", style="Muted.TLabel", font=("Helvetica", 10)).pack(side=tk.LEFT, padx=4)
 
     def get_selected_user_id() -> Optional[int]:
         selection = table.selection()
@@ -170,10 +229,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             return
         refresh_users()
 
-    tk.Button(selection_frame, text="Edit name", command=edit_username).pack(side=tk.LEFT, padx=4)
-    tk.Button(selection_frame, text="Enable", command=lambda: set_enabled(True)).pack(side=tk.LEFT, padx=4)
-    tk.Button(selection_frame, text="Disable", command=lambda: set_enabled(False)).pack(side=tk.LEFT, padx=4)
-    tk.Button(selection_frame, text="Delete", command=delete_selected).pack(side=tk.LEFT, padx=4)
+    ttk.Button(selection_frame, text="Edit name", command=edit_username).pack(side=tk.LEFT, padx=4)
+    ttk.Button(selection_frame, text="Enable", command=lambda: set_enabled(True)).pack(side=tk.LEFT, padx=4)
+    ttk.Button(selection_frame, text="Disable", command=lambda: set_enabled(False)).pack(side=tk.LEFT, padx=4)
+    ttk.Button(selection_frame, text="Delete", command=delete_selected).pack(side=tk.LEFT, padx=4)
 
     # ========== Tab 2: Chat ==========
     tab_chat = tk.Frame(notebook)
@@ -186,7 +245,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         tab_chat,
         post_callback=post_message_wrapper,
         fetch_callback=lambda: list_messages_lines(),
+        current_user=user.get("username"),
     ).pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-    return container
+    return scroll
+
+
 
