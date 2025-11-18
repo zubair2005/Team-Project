@@ -1,20 +1,39 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox, filedialog
+from services import list_messages
 from typing import Callable, Iterable, List, Sequence, Tuple, Optional
 from ui.theme import get_palette, tint
 
 
 class MessageBoard(tk.Frame):
-    def __init__(self, master: tk.Misc, post_callback: Callable[[str], None], fetch_callback: Callable[[], Sequence[str]], current_user: Optional[str] = None):
+    def __init__(self, master: tk.Misc, post_callback: Callable[[str], None], fetch_callback: Callable[[], Sequence[str]], current_user: Optional[str] = None, enable_search: bool = True):
         super().__init__(master)
         self.post_callback = post_callback
         self.fetch_callback = fetch_callback
         self.current_user = current_user
+        self.enable_search = enable_search
 
         palette = get_palette(self)
         self.configure(background=palette["bg"])
 
         tk.Label(self, text="Chat", font=("Helvetica", 12, "bold"), bg=palette["bg"], fg=palette["text"]).pack(pady=(0, 4), anchor=tk.W)
+        if self.enable_search:
+            search_row = ttk.Frame(self)
+            search_row.pack(fill=tk.X, pady=(0, 6))
+            ttk.Label(search_row, text="Search:", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 6))
+            self._search_var = tk.StringVar(value="")
+            self._search_entry = ttk.Entry(search_row, textvariable=self._search_var, width=36)
+            self._search_entry.pack(side=tk.LEFT, padx=4)
+            self._scope_var = tk.StringVar(value="Users")
+            ttk.Combobox(
+                search_row,
+                textvariable=self._scope_var,
+                values=["Users", "Date (YYYY-MM-DD)", "Message Content"],
+                state="readonly",
+                width=24,
+                style="Filled.TCombobox",
+            ).pack(side=tk.LEFT, padx=6)
+            ttk.Button(search_row, text="Search", command=self._run_search).pack(side=tk.LEFT, padx=4)
 
         # Scrollable messages area (Canvas + inner Frame)
         container = tk.Frame(self, bg=palette["bg"])
@@ -56,6 +75,74 @@ class MessageBoard(tk.Frame):
             self._add_bubble(sender, content, created)
         # Auto-scroll to bottom
         self.after(10, lambda: self.canvas.yview_moveto(1.0))
+
+    def _run_search(self) -> None:
+        keyword = (self._search_var.get() if hasattr(self, "_search_var") else "").strip()
+        scope = (self._scope_var.get() if hasattr(self, "_scope_var") else "Users")
+        if not keyword:
+            messagebox.showwarning("Search", "Please enter a search keyword.")
+            return
+        rows = list_messages()
+        matches: List[str] = []
+        key_lower = keyword.lower()
+        for row in rows:
+            sender = (row.get("sender_username") or "").strip()
+            created = str(row.get("created_at") or "").strip()
+            content = (row.get("content") or "").strip()
+            if scope == "Users":
+                if sender.lower() == key_lower:
+                    matches.append(f"[{created}] {sender}: {content}")
+            elif scope == "Message Content":
+                if key_lower in content.lower():
+                    matches.append(f"[{created}] {sender}: {content}")
+            else:  # Date (YYYY-MM-DD)
+                # Compare date-only part robustly
+                date_part = created.split(" ")[0].split("T")[0] if created else ""
+                if date_part == keyword:
+                    matches.append(f"[{created}] {sender}: {content}")
+        if not matches:
+            if scope == "Users":
+                messagebox.showerror("Search", f"No messages found from user '{keyword}'.")
+            elif scope == "Message Content":
+                messagebox.showerror("Search", f"No messages containing '{keyword}'.")
+            else:
+                messagebox.showerror("Search", f"No messages found for date '{keyword}'.")
+            return
+        # Show results dialog (viewer only in this step)
+        dialog = tk.Toplevel(self)
+        dialog.title(f"Chat results: {scope} = '{keyword}'")
+        dialog.geometry("520x420")
+        # Container
+        frame = ttk.Frame(dialog, padding=10)
+        frame.pack(fill=tk.BOTH, expand=True)
+        text = tk.Text(frame, state="normal", height=16, wrap="word")
+        text.pack(fill=tk.BOTH, expand=True)
+        # Oldest first (reverse chronological in DB → reverse here)
+        for line in reversed(matches):
+            text.insert(tk.END, line + "\n")
+        text.config(state="disabled")
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill=tk.X, pady=8)
+        def do_export() -> None:
+            path = filedialog.asksaveasfilename(
+                title="Export chat results",
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("Text files", "*.txt"), ("All files", "*.*")],
+                initialfile="chat_export.csv",
+            )
+            if not path:
+                return
+            try:
+                with open(path, "w", encoding="utf-8", newline="") as f:
+                    # Write plain lines; consumer can open in any editor
+                    for line in reversed(matches):
+                        f.write(line)
+                        f.write("\n")
+                messagebox.showinfo("Export", f"Saved {len(matches)} line(s) to:\n{path}")
+            except OSError as exc:
+                messagebox.showerror("Export failed", f"Could not write file:\n{exc}")
+        ttk.Button(buttons, text="Export to CSV", command=do_export).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="Close", command=dialog.destroy).pack(side=tk.RIGHT)
 
     def _send(self) -> None:
         content = self.entry.get().strip()
