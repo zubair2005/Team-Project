@@ -26,6 +26,7 @@ from services import (
     remove_leader_assignment,
     save_daily_report,
     update_camp_camper_food,
+    get_camp,
 )
 from ui.components import MessageBoard, Table, ScrollFrame
 from ui.theme import get_palette, tint
@@ -433,9 +434,23 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             # Validate date format
             try:
                 import pandas as pd
-                pd.to_datetime(date)
+                date_dt = pd.to_datetime(date, format="%Y-%m-%d")
             except Exception:
                 messagebox.showerror("Activity", "Invalid date format. Use YYYY-MM-DD.")
+                return
+            # Validate date within camp range
+            camp = get_camp(assignment["camp_id"])
+            try:
+                start_dt = pd.to_datetime(camp["start_date"], format="%Y-%m-%d")
+                end_dt = pd.to_datetime(camp["end_date"], format="%Y-%m-%d")
+            except Exception:
+                messagebox.showerror("Activity", "Could not read camp dates for validation.")
+                return
+            if date_dt < start_dt or date_dt > end_dt:
+                messagebox.showerror(
+                    "Activity",
+                    f"Date must be within the camp’s dates ({camp['start_date']} to {camp['end_date']}).",
+                )
                 return
             if not create_activity(assignment["camp_id"], name, date):
                 messagebox.showerror("Activity", "Failed to create activity.")
@@ -564,9 +579,23 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                 return
             try:
                 import pandas as pd
-                pd.to_datetime(date)
+                date_dt = pd.to_datetime(date, format="%Y-%m-%d")
             except Exception:
                 messagebox.showerror("Activity", "Invalid date format. Use YYYY-MM-DD.")
+                return
+            # Validate date within camp range
+            camp = get_camp(assignment["camp_id"])
+            try:
+                start_dt = pd.to_datetime(camp["start_date"], format="%Y-%m-%d")
+                end_dt = pd.to_datetime(camp["end_date"], format="%Y-%m-%d")
+            except Exception:
+                messagebox.showerror("Activity", "Could not read camp dates for validation.")
+                return
+            if date_dt < start_dt or date_dt > end_dt:
+                messagebox.showerror(
+                    "Activity",
+                    f"Date must be within the camp’s dates ({camp['start_date']} to {camp['end_date']}).",
+                )
                 return
             if not update_activity(activity["id"], assignment["camp_id"], name, date):
                 messagebox.showerror("Activity", "Failed to update activity.")
@@ -655,6 +684,13 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
         def save_report() -> None:
             date = date_var.get().strip()
+            # Enforce strict format
+            try:
+                import pandas as pd
+                pd.to_datetime(date, format="%Y-%m-%d")
+            except Exception:
+                messagebox.showerror("Report", "Invalid date format. Use YYYY-MM-DD.")
+                return
             notes = text_widget.get("1.0", tk.END).strip()
             if not date:
                 messagebox.showwarning("Report", "Date required.")

@@ -109,6 +109,31 @@ def list_users() -> List[Dict[str, Any]]:
         ).fetchall()
         return [dict(r) for r in rows]
 
+def count_roles_total() -> Dict[str, int]:
+    """Return total counts per role across all users (enabled and disabled)."""
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT role, COUNT(*) as c FROM users GROUP BY role;"
+        ).fetchall()
+    counts: Dict[str, int] = {"admin": 0, "coordinator": 0, "leader": 0}
+    for r in rows:
+        role = str(r["role"])
+        if role in counts:
+            counts[role] = int(r["c"])
+    return counts
+
+def count_roles_enabled() -> Dict[str, int]:
+    """Return counts per role for enabled users only."""
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT role, COUNT(*) as c FROM users WHERE enabled = 1 GROUP BY role;"
+        ).fetchall()
+    counts: Dict[str, int] = {"admin": 0, "coordinator": 0, "leader": 0}
+    for r in rows:
+        role = str(r["role"])
+        if role in counts:
+            counts[role] = int(r["c"])
+    return counts
 
 def create_user(username: str, role: str) -> bool:
     try:

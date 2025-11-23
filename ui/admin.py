@@ -12,6 +12,8 @@ from services import (
     post_message,
     update_user_enabled,
     update_user_username,
+    count_roles_total,
+    count_roles_enabled,
 )
 from ui.components import MessageBoard, ScrollFrame
 from ui.theme import get_palette, tint
@@ -37,6 +39,47 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     ttk.Label(tab_users, text="User Accounts", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, padx=10, pady=(10, 2))
     manage_frame = ttk.Frame(tab_users, style="Card.TFrame", padding=10)
     manage_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+
+    # Username search (exact, case-insensitive)
+    search_row = ttk.Frame(manage_frame)
+    search_row.pack(fill=tk.X, pady=(0, 6))
+    ttk.Label(search_row, text="Search username", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 6))
+    search_var = tk.StringVar(value="")
+    search_entry = ttk.Entry(search_row, textvariable=search_var, width=20)
+    search_entry.pack(side=tk.LEFT, padx=4)
+    def do_search() -> None:
+        keyword = search_var.get().strip()
+        if not keyword:
+            # Clear selection if empty
+            sel = table.selection()
+            if sel:
+                table.selection_remove(*sel)
+            return
+        target = None
+        for item_id in table.get_children():
+            row_vals = table.item(item_id).get("values", [])
+            if not row_vals:
+                continue
+            username = str(row_vals[0])
+            if username.lower() == keyword.lower():
+                target = item_id
+                break
+        if target:
+            table.selection_set(target)
+            table.focus(target)
+            table.see(target)
+        else:
+            sel = table.selection()
+            if sel:
+                table.selection_remove(*sel)
+            messagebox.showinfo("Not found", "Not found")
+    def clear_search() -> None:
+        search_var.set("")
+        sel = table.selection()
+        if sel:
+            table.selection_remove(*sel)
+    ttk.Button(search_row, text="Search", command=do_search).pack(side=tk.LEFT, padx=4)
+    ttk.Button(search_row, text="Clear", command=clear_search).pack(side=tk.LEFT)
 
     # Users table container with vertical scrollbar
     table_container = ttk.Frame(manage_frame)
@@ -200,9 +243,23 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         record = get_selected_user()
         if record is None:
             return
-        if record["role"] in {"admin", "coordinator"} and not enabled:
-            messagebox.showerror("Disable", f"Cannot disable the sole {record['role']} account.")
+        role = record.get("role", "")
+        username_display = record.get("username", "User")
+        # If the requested state equals current state, inform and return
+        if bool(record.get("enabled")) == bool(enabled):
+            state_txt = "enabled" if enabled else "disabled"
+            messagebox.showinfo("Status unchanged", f"{username_display} is already {state_txt}.")
             return
+        # Never allow disabling admin accounts
+        if role == "admin" and not enabled:
+            messagebox.showerror("Disable", "Cannot disable an admin account.")
+            return
+        # Prevent disabling the last enabled user of a role
+        if not enabled:
+            enabled_counts = count_roles_enabled()
+            if enabled_counts.get(role, 0) <= 1:
+                messagebox.showerror("Disable", f"Cannot disable the sole {role} account.")
+                return
         if record["id"] == user.get("id") and not enabled:
             messagebox.showwarning("Disable", "You cannot disable the account currently logged in.")
             return
@@ -213,11 +270,15 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         record = get_selected_user()
         if record is None:
             return
-        if record["role"] in {"admin", "coordinator"}:
-            messagebox.showerror(
-                "Delete",
-                f"Cannot delete the only {record['role']} account. Disable it instead if necessary.",
-            )
+        role = record.get("role", "")
+        # Block deleting admin accounts entirely
+        if role == "admin":
+            messagebox.showerror("Delete", "Cannot delete the admin account.")
+            return
+        # Prevent deleting the last remaining user of a role
+        total_counts = count_roles_total()
+        if total_counts.get(role, 0) <= 1:
+            messagebox.showerror("Delete", f"Cannot delete the sole {role} account.")
             return
         if record["id"] == user.get("id"):
             messagebox.showwarning("Delete", "You cannot delete the account currently logged in.")
