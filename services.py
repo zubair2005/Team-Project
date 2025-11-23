@@ -927,4 +927,100 @@ def import_campers_from_csv(camp_id: int, file_path: str) -> Dict[str, Any]:
         "preview": preview_rows,
     }
 
+## services for parent portal
+
+# returns campers linked to parent
+def list_parent_campers(parent_user_id: int) -> List[Dict[str, Any]]:
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT c.* FROM campers c "
+            "JOIN parent_campers pc ON pc.camper_id = c.id "
+            "WHERE pc.parent_user_id = ?;",
+            (parent_user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    
+
+# adds a link between the parent and the camper
+def add_parent_camper(parent_user_id: int, camper_id: int) -> bool:
+    try:
+        with _connect() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO parent_campers(parent_user_id, camper_id) VALUES (?, ?);",
+                (parent_user_id, camper_id),
+            )
+        return True
+    except Exception:
+        return False
+    
+# returns camps assigned to a camper
+def list_camps_for_camper(camper_id: int) -> List[Dict[str, Any]]:
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT c.* FROM camps c "
+            "JOIN camp_campers cc ON cc.camp_id = c.id "
+            "WHERE cc.camper_id = ? ORDER BY c.start_date;",
+            (camper_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+# returns unique camps for all campers associated to a parent
+def list_camps_for_parent(parent_user_id: int) -> List[Dict[str, Any]]:
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT c.* FROM camps c "
+            "JOIN camp_campers cc ON cc.camp_id = c.id "
+            "JOIN parent_campers pc ON pc.camper_id = cc.camper_id "
+            "WHERE pc.parent_user_id = ? ORDER BY c.start_date;",
+            (parent_user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    
+# record a consent form, overwrites previous entry for the parent/camper/camp
+def submit_consent_form(parent_user_id: int, camper_id: int, camp_id: int, consent: bool, notes: str = "") -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO consent_forms(parent_user_id, camper_id, camp_id, consent, notes, submitted_at) "
+            "VALUES (?, ?, ?, ?, ?, datetime('now'));",
+            (parent_user_id, camper_id, camp_id, int(consent), notes),
+        )
+
+# fetches the consent form if it exists
+def get_consent_form(parent_user_id: int, camper_id: int, camp_id: int) -> Optional[Dict[str, Any]]:
+    with _dict_cursor(_connect()) as conn:
+        row = conn.execute(
+            "SELECT * FROM consent_forms WHERE parent_user_id = ? AND camper_id = ? AND camp_id = ?;",
+            (parent_user_id, camper_id, camp_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+# records free-text feedback for a camper in a camp
+def submit_feedback(parent_user_id: int, camper_id: int, camp_id: int, feedback: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO camper_feedback(parent_user_id, camper_id, camp_id, feedback, submitted_at) "
+            "VALUES (?, ?, ?, ?, datetime('now'));",
+            (parent_user_id, camper_id, camp_id, feedback),
+        )
+
+# returns feedback entries for a camper - newest first
+def list_feedback_for_camper(camper_id: int) -> List[Dict[str, Any]]:
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT * FROM camper_feedback WHERE camper_id = ? ORDER BY submitted_at DESC;",
+            (camper_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+# returns daily reports for a camper across all camps
+def list_daily_reports_for_camper(camper_id: int) -> List[Dict[str, Any]]:
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT dr.* FROM daily_reports dr "
+            "JOIN camp_campers cc ON cc.camp_id = dr.camp_id "
+            "WHERE cc.camper_id = ? ORDER BY dr.date;",
+            (camper_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
 

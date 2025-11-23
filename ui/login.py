@@ -5,7 +5,7 @@ from tkinter import messagebox, ttk
 from typing import Callable, Dict, Optional
 
 from services import authenticate
-from ui import admin, coordinator, leader
+from ui import admin, coordinator, leader, parent
 from ui import theme as app_theme
 
 
@@ -16,6 +16,7 @@ ROLE_BUILDERS: Dict[str, RoleBuilder] = {
     "admin": admin.build_dashboard,
     "coordinator": coordinator.build_dashboard,
     "leader": leader.build_dashboard,
+    "parent": parent.build_dashboard,
 }
 
 
