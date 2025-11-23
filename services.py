@@ -117,6 +117,8 @@ def create_user(username: str, role: str) -> bool:
                 "INSERT INTO users(username, role, enabled, password) VALUES (?, ?, 1, '');",
                 (username.strip(), role),
             )
+        msg = f"New user '{username}' created with role '{role}'."
+        create_notification_for_role("admin", msg)
         return True
     except sqlite3.IntegrityError:
         return False
@@ -521,6 +523,10 @@ def create_camp(
                     default_food_units_per_camper_per_day,
                 ),
             )
+
+        # Notify coordinators and leaders inside the app
+        msg = f"New camp created: {name} at {location} ({start_date} – {end_date})"
+        create_notification_for_role("admin", msg)
         return True
     except sqlite3.IntegrityError:
         return False
@@ -1022,5 +1028,43 @@ def list_daily_reports_for_camper(camper_id: int) -> List[Dict[str, Any]]:
             (camper_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+    
+# return notifications for a user, newest first
+def list_notifications_for_user(user_id: int) -> List[Dict[str, Any]]:
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT * FROM notifications WHERE user_id = ? "
+            "ORDER BY created_at DESC;",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# mark all notifications for a user as read 
+def mark_notifications_read(user_id: int) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE notifications SET is_read = 1 WHERE user_id = ?;",
+            (user_id,),
+        )
+
+# create a notification for every enabled user with this role
+def create_notification_for_role(role: str, message: str) -> None:
+
+    users = list_users()  
+    target_ids = [u["id"] for u in users if u["role"] == role and u["enabled"]]
+
+    if not target_ids:
+        return
+
+    with _connect() as conn:
+        for user_id in target_ids:
+            conn.execute(
+                "INSERT INTO notifications(user_id, message, created_at, is_read) "
+                "VALUES (?, ?, datetime('now'), 0);",
+                (user_id, message),
+            )
+
+
 
 

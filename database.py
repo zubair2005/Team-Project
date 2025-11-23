@@ -85,6 +85,16 @@ def init_db() -> None:
                 FOREIGN KEY (camp_id) REFERENCES camps(id) ON DELETE CASCADE
             );
 
+            -- Notifications table
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                message TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                is_read INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS camps (
                 id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,

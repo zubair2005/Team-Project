@@ -12,12 +12,39 @@ from services import (
     post_message,
     update_user_enabled,
     update_user_username,
+    list_notifications_for_user,
+    mark_notifications_read,
 )
 from ui.components import MessageBoard, ScrollFrame
 from ui.theme import get_palette, tint
 
+def _open_notifications(user):
+    win = tk.Toplevel()
+    win.title("Notifications")
+
+    notifications = list_notifications_for_user(user["id"])
+    if not notifications:
+        ttk.Label(win, text="No notifications.").pack(padx=10, pady=10)
+        return
+
+    for n in notifications:
+        ttk.Label(
+            win,
+            text=f"[{n['created_at']}] {n['message']}",
+            wraplength=400,
+            justify="left",
+        ).pack(anchor=tk.W, padx=10, pady=2)
+
+    ttk.Button(
+        win,
+        text="Mark all as read",
+        command=lambda: (mark_notifications_read(user["id"]), win.destroy()),
+    ).pack(pady=10)
+
+
 
 def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callable[[], None]) -> tk.Frame:
+    
     scroll = ScrollFrame(root)
     container = scroll.content
 
@@ -25,6 +52,9 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     header.pack(fill=tk.X, pady=8, padx=10)
 
     tk.Label(header, text="Administrator Dashboard", font=("Helvetica", 16, "bold")).pack(side=tk.LEFT)
+
+    ttk.Button(header, text="Notifications", command=_open_notifications).pack(side=tk.RIGHT, padx=(0, 5))
+    
     ttk.Button(header, text="Logout", command=logout_callback).pack(side=tk.RIGHT)
 
     notebook = ttk.Notebook(container)
