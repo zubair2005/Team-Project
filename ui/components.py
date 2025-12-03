@@ -90,7 +90,8 @@ class MessageBoard(tk.Frame):
             created = str(row.get("created_at") or "").strip()
             content = (row.get("content") or "").strip()
             if scope == "Users":
-                if sender.lower() == key_lower:
+                # Allow substring match on usernames (e.g., 'lea' matches 'leader1')
+                if key_lower in sender.lower():
                     matches.append(f"[{created}] {sender}: {content}")
             elif scope == "Message Content":
                 if key_lower in content.lower():
@@ -249,8 +250,11 @@ class ScrollFrame(tk.Frame):
 
         # Keep left alignment; allow horizontal scroll by not forcing width
         def _on_canvas_resize(_evt=None) -> None:
-            # Make content span the visible width; allow vertical overflow for scrolling
-            self.canvas.itemconfigure(self._window_id, anchor="nw", width=self.canvas.winfo_width())
+            # Keep content natural width to enable horizontal scrolling; just ensure anchor
+            try:
+                self.canvas.itemconfigure(self._window_id, anchor="nw")
+            except Exception:
+                pass
         self.canvas.bind("<Configure>", _on_canvas_resize)
 
 

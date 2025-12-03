@@ -81,20 +81,23 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     ttk.Button(search_row, text="Search", command=do_search).pack(side=tk.LEFT, padx=4)
     ttk.Button(search_row, text="Clear", command=clear_search).pack(side=tk.LEFT)
 
-    # Users table container with vertical scrollbar
+    # Users table container with vertical + horizontal scrollbars
     table_container = ttk.Frame(manage_frame)
     table_container.pack(fill=tk.BOTH, expand=True)
     table = ttk.Treeview(table_container, columns=("Username", "Role", "Enabled"), show="headings", height=12)
     table_scroll = ttk.Scrollbar(table_container, orient="vertical", command=table.yview)
-    table.configure(yscrollcommand=table_scroll.set)
+    table_hscroll = ttk.Scrollbar(table_container, orient="horizontal", command=table.xview)
+    table.configure(yscrollcommand=table_scroll.set, xscrollcommand=table_hscroll.set)
     table.heading("Username", text="Username", anchor=tk.W)
     table.heading("Role", text="Role", anchor=tk.CENTER)
     table.heading("Enabled", text="Enabled", anchor=tk.CENTER)
-    table.column("Username", width=140, anchor=tk.W)
-    table.column("Role", width=120, anchor=tk.CENTER)
-    table.column("Enabled", width=80, anchor=tk.CENTER)
+    # Fix column widths and disable stretching to avoid overlap; use horizontal scroll for overflow
+    table.column("Username", width=220, minwidth=160, stretch=True, anchor=tk.W)
+    table.column("Role", width=160, minwidth=120, stretch=True, anchor=tk.CENTER)
+    table.column("Enabled", width=120, minwidth=80, stretch=True, anchor=tk.CENTER)
     table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
     table_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
+    table_hscroll.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 4))
 
     # Empty state label (hidden unless no users)
     empty_label = ttk.Label(manage_frame, text="No users to display.", style="Muted.TLabel")

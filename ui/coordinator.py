@@ -78,35 +78,38 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     table_container.pack(fill=tk.BOTH, expand=True)
     camps_table = ttk.Treeview(table_container, columns=columns, show="headings", height=10)
     camps_scroll = ttk.Scrollbar(table_container, orient="vertical", command=camps_table.yview)
-    camps_table.configure(yscrollcommand=camps_scroll.set)
+    camps_hscroll = ttk.Scrollbar(table_container, orient="horizontal", command=camps_table.xview)
+    camps_table.configure(yscrollcommand=camps_scroll.set, xscrollcommand=camps_hscroll.set)
     for col in columns:
         camps_table.heading(col, text=col)
-        camps_table.column(col, width=100)
+        # Fix sensible min widths; enable stretch so table fills wide windows
+        camps_table.column(col, width=120, minwidth=80, stretch=True, anchor=tk.CENTER)
     # Header and cell alignment for readability
     camps_table.heading("Name", anchor=tk.W)
-    camps_table.column("Name", width=140, anchor=tk.W)
+    camps_table.column("Name", width=160, minwidth=140, stretch=True, anchor=tk.W)
     camps_table.heading("Location", anchor=tk.W)
-    camps_table.column("Location", width=120, anchor=tk.W)
+    camps_table.column("Location", width=160, minwidth=140, stretch=True, anchor=tk.W)
     camps_table.heading("Area", anchor=tk.CENTER)
-    camps_table.column("Area", anchor=tk.CENTER)
+    camps_table.column("Area", width=120, minwidth=100, stretch=True, anchor=tk.CENTER)
     camps_table.heading("Type", anchor=tk.CENTER)
-    camps_table.column("Type", anchor=tk.CENTER)
+    camps_table.column("Type", width=120, minwidth=100, stretch=True, anchor=tk.CENTER)
     camps_table.heading("Leaders", anchor=tk.CENTER)
-    camps_table.column("Leaders", width=120, anchor=tk.CENTER)
+    camps_table.column("Leaders", width=220, minwidth=160, stretch=True, anchor=tk.CENTER)
     camps_table.heading("Start", anchor=tk.CENTER)
-    camps_table.column("Start", width=90, anchor=tk.CENTER)
+    camps_table.column("Start", width=120, minwidth=110, stretch=True, anchor=tk.CENTER)
     camps_table.heading("End", anchor=tk.CENTER)
-    camps_table.column("End", width=90, anchor=tk.CENTER)
+    camps_table.column("End", width=120, minwidth=110, stretch=True, anchor=tk.CENTER)
     camps_table.heading("Daily Food", anchor=tk.CENTER)
-    camps_table.column("Daily Food", anchor=tk.CENTER)
+    camps_table.column("Daily Food", width=140, minwidth=110, stretch=True, anchor=tk.CENTER)
     camps_table.heading("Default Food/Person", anchor=tk.CENTER)
-    camps_table.column("Default Food/Person", anchor=tk.CENTER)
+    camps_table.column("Default Food/Person", width=200, minwidth=160, stretch=True, anchor=tk.CENTER)
     camps_table.heading("Top-up Δ", anchor=tk.CENTER)
-    camps_table.column("Top-up Δ", anchor=tk.CENTER)
+    camps_table.column("Top-up Δ", width=120, minwidth=100, stretch=True, anchor=tk.CENTER)
     camps_table.heading("Effective Daily", anchor=tk.CENTER)
-    camps_table.column("Effective Daily", anchor=tk.CENTER)
+    camps_table.column("Effective Daily", width=160, minwidth=130, stretch=True, anchor=tk.CENTER)
     camps_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
     camps_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
+    camps_hscroll.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 4))
 
     # Empty state label (hidden unless no camps)
     camps_empty_label = ttk.Label(camps_frame, text="No camps available. Create one above.", style="Muted.TLabel")
@@ -226,15 +229,16 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     def validate_dates(start: str, end: str) -> bool:
         try:
             import pandas as pd
-            start_dt = pd.to_datetime(start)
-            end_dt = pd.to_datetime(end)
-            if end_dt < start_dt:
-                messagebox.showerror("Validation", "End date must be on or after start date.")
-                return False
-            return True
+            # Enforce strict format: YYYY-MM-DD
+            start_dt = pd.to_datetime(start, format="%Y-%m-%d")
+            end_dt = pd.to_datetime(end, format="%Y-%m-%d")
         except Exception:
-            messagebox.showerror("Validation", "Invalid date format. Use YYYY-MM-DD.")
+            messagebox.showerror("Validation", "Invalid date format. Use YYYY-MM-DD (e.g., 2025-08-31).")
             return False
+        if end_dt < start_dt:
+            messagebox.showerror("Validation", "End date must be on or after start date.")
+            return False
+        return True
 
     def create_or_updateCamp(update: bool) -> None:
         name = name_var.get().strip()
