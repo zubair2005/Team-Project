@@ -1022,10 +1022,16 @@ def list_feedback_for_camper(camper_id: int) -> List[Dict[str, Any]]:
 def list_daily_reports_for_camper(camper_id: int) -> List[Dict[str, Any]]:
     with _dict_cursor(_connect()) as conn:
         rows = conn.execute(
-            "SELECT dr.* FROM daily_reports dr "
-            "JOIN camp_campers cc ON cc.camp_id = dr.camp_id "
-            "WHERE cc.camper_id = ? ORDER BY dr.date;",
-            (camper_id,),
+            """
+            SELECT dr.date,
+                   u.username AS leader,
+                   dr.notes
+            FROM daily_reports dr
+            JOIN camp_campers cc ON cc.camp_id = dr.camp_id
+            JOIN users u ON u.id = dr.leader_user_id
+            WHERE cc.camper_id = ?
+            ORDER BY dr.date;
+            """,
         ).fetchall()
         return [dict(r) for r in rows]
     
@@ -1064,6 +1070,18 @@ def create_notification_for_role(role: str, message: str) -> None:
                 "VALUES (?, ?, datetime('now'), 0);",
                 (user_id, message),
             )
+
+def list_campers() -> List[Dict[str, Any]]:
+    """Return all campers for admin UI, ordered by name."""
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, first_name, last_name, dob, emergency_contact
+            FROM campers
+            ORDER BY LOWER(last_name), LOWER(first_name);
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 

@@ -190,6 +190,15 @@ def init_db() -> None:
             """,
         )
 
+        ## to overwrite consent forms 
+
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS unique_consent_form
+            ON consent_forms(parent_user_id, camper_id, camp_id);
+            """
+        )
+
 
 def seed_initial_data() -> None:
     """Seed baseline settings and users per Note 1.
