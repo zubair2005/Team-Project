@@ -60,7 +60,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     def save_daily_rate() -> None:
         value = daily_rate_var.get().strip()
         if not value.isdigit():
-            messagebox.showerror("Daily pay rate", "Enter a non-negative integer value.")
+            messagebox.showerror("Daily pay rate", "Enter a positive integer (>= 1).")
+            return
+        if int(value) < 1:
+            messagebox.showerror("Daily pay rate", "Enter a positive integer (>= 1).")
             return
         set_daily_pay_rate(value)
         messagebox.showinfo("Daily pay rate", "Updated successfully.")
