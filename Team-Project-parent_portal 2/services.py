@@ -2,7 +2,6 @@ import csv
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import re
 
 import numpy as np
 import pandas as pd
@@ -13,106 +12,6 @@ from database import _connect
 def _dict_cursor(conn: sqlite3.Connection) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     return conn
-
-
-# =========================
-# UK phone (+44) utilities
-# =========================
-_UK_FORMATTED_RE = re.compile(r"^\+44\s\d{4}\s\d{6}$")  # +44 XXXX XXXXXX (10 digits after +44, grouped 4+6)
-_UK_COMPACT_RE = re.compile(r"^\+44\d{10}$")  # +44XXXXXXXXXX (10 digits after +44)
-
-
-def normalize_uk_phone_to_formatted(value: str) -> Optional[str]:
-    """Normalize a UK phone to '+44 XXXX XXXXXX' or return None if invalid.
-    
-    Accepts either '+44XXXXXXXXXX' (compact, 10 digits) or '+44 XXXX XXXXXX' (formatted).
-    Any other shape returns None.
-    """
-    s = (value or "").strip()
-    if not s:
-        return None
-    if _UK_FORMATTED_RE.fullmatch(s):
-        return s
-    # Strip spaces/dashes for compact check
-    compact = s.replace(" ", "").replace("-", "")
-    if _UK_COMPACT_RE.fullmatch(compact):
-        digits = compact[3:]  # 10 digits
-        return f"+44 {digits[:4]} {digits[4:]}"  # 4 + 6 grouping
-    return None
-
-
-def normalize_uk_phone_to_compact(value: str) -> Optional[str]:
-    """Normalize a UK phone to '+44XXXXXXXXXX' (no spaces) or None if invalid."""
-    s = (value or "").strip()
-    if not s:
-        return None
-    if _UK_COMPACT_RE.fullmatch(s.replace(" ", "").replace("-", "")):
-        return s.replace(" ", "").replace("-", "")
-    if _UK_FORMATTED_RE.fullmatch(s):
-        # Convert formatted to compact
-        return s.replace(" ", "")
-    return None
-
-
-def is_valid_uk_phone(value: str) -> bool:
-    """True if value is a valid UK number in '+44XXXXXXXXXX' or '+44 XXXX XXXXXX' form."""
-    return normalize_uk_phone_to_formatted(value) is not None
-
-
-def normalize_all_camper_phones() -> Dict[str, int]:
-    """Normalize all campers.emergency_contact to '+44 XXXX XXXXXX' when possible.
-    
-    Rules:
-    - If value contains local UK '0' + 10 digits, convert to +44 + last 10 digits.
-    - If value contains '44' + 10 digits, prefix '+' and format.
-    - If value contains '+44' + 10 digits (any formatting), normalize grouping to 4+6.
-    - Otherwise leave unchanged and count as invalid.
-    
-    Returns counters: {'updated': n, 'unchanged': n, 'invalid': n}
-    """
-    counters: Dict[str, int] = {"updated": 0, "unchanged": 0, "invalid": 0}
-    with _dict_cursor(_connect()) as conn:
-        rows = conn.execute("SELECT id, emergency_contact FROM campers;").fetchall()
-    with _connect() as conn_w:
-        for r in rows:
-            camper_id = int(r["id"])
-            raw = (r["emergency_contact"] or "").strip()
-            if not raw:
-                counters["unchanged"] += 1
-                continue
-            # Clean variants
-            digits_only = re.sub(r"\D", "", raw)
-            compact = raw.replace(" ", "").replace("-", "")
-            candidate_compact = None
-            # +44XXXXXXXXXX (keep as-is compact)
-            if _UK_COMPACT_RE.fullmatch(compact):
-                candidate_compact = compact
-            # 44XXXXXXXXXX (missing '+')
-            elif re.fullmatch(r"44\d{10}", digits_only):
-                candidate_compact = "+" + digits_only
-            # 0XXXXXXXXXX local UK → +44XXXXXXXXXX
-            elif re.fullmatch(r"0\d{10}", digits_only):
-                candidate_compact = "+44" + digits_only[1:]
-            # Already formatted but wrong grouping or spaces
-            else:
-                # Attempt to extract +44 and exactly 10 digits after anywhere
-                m = re.search(r"\+?44\D*(\d)\D*(\d)\D*(\d)\D*(\d)\D*(\d)\D*(\d)\D*(\d)\D*(\d)\D*(\d)\D*(\d)", raw)
-                if m:
-                    ten = "".join(m.groups())
-                    candidate_compact = "+44" + ten
-            normalized = normalize_uk_phone_to_formatted(candidate_compact or raw)
-            if not normalized:
-                counters["invalid"] += 1
-                continue
-            if normalized != raw:
-                conn_w.execute(
-                    "UPDATE campers SET emergency_contact = ? WHERE id = ?;",
-                    (normalized, camper_id),
-                )
-                counters["updated"] += 1
-            else:
-                counters["unchanged"] += 1
-    return counters
 
 
 def authenticate(username: str, password: str) -> Optional[Dict[str, Any]]:
@@ -210,31 +109,6 @@ def list_users() -> List[Dict[str, Any]]:
         ).fetchall()
         return [dict(r) for r in rows]
 
-def count_roles_total() -> Dict[str, int]:
-    """Return total counts per role across all users (enabled and disabled)."""
-    with _dict_cursor(_connect()) as conn:
-        rows = conn.execute(
-            "SELECT role, COUNT(*) as c FROM users GROUP BY role;"
-        ).fetchall()
-    counts: Dict[str, int] = {"admin": 0, "coordinator": 0, "leader": 0}
-    for r in rows:
-        role = str(r["role"])
-        if role in counts:
-            counts[role] = int(r["c"])
-    return counts
-
-def count_roles_enabled() -> Dict[str, int]:
-    """Return counts per role for enabled users only."""
-    with _dict_cursor(_connect()) as conn:
-        rows = conn.execute(
-            "SELECT role, COUNT(*) as c FROM users WHERE enabled = 1 GROUP BY role;"
-        ).fetchall()
-    counts: Dict[str, int] = {"admin": 0, "coordinator": 0, "leader": 0}
-    for r in rows:
-        role = str(r["role"])
-        if role in counts:
-            counts[role] = int(r["c"])
-    return counts
 
 def create_user(username: str, role: str) -> bool:
     try:
@@ -293,29 +167,6 @@ def set_setting(key: str, value: str) -> None:
             "INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
             (key, value),
         )
-
-
-# -------------------------
-# Camper update operations
-# -------------------------
-def update_camper(camper_id: int, first_name: str, last_name: str, dob: str, emergency_contact: str) -> bool:
-    """Update core camper fields. UI should validate formats prior to calling this.
-    
-    Returns True if a row was updated.
-    """
-    try:
-        with _connect() as conn:
-            res = conn.execute(
-                """
-                UPDATE campers
-                SET first_name = ?, last_name = ?, dob = ?, emergency_contact = ?
-                WHERE id = ?;
-                """,
-                (first_name.strip(), last_name.strip(), dob.strip(), emergency_contact.strip(), camper_id),
-            )
-        return res.rowcount > 0
-    except sqlite3.IntegrityError:
-        return False
 
 
 def get_daily_pay_rate() -> str:
@@ -870,14 +721,7 @@ def list_camp_campers(camp_id: int) -> List[Dict[str, Any]]:
     with _dict_cursor(_connect()) as conn:
         rows = conn.execute(
             """
-            SELECT
-                cc.id,                       -- camp_campers row id (kept as 'id')
-                cam.id AS camper_id,         -- underlying campers.id
-                cc.food_units_per_day,
-                cam.first_name,
-                cam.last_name,
-                cam.dob,
-                cam.emergency_contact
+            SELECT cc.id, cc.food_units_per_day, cam.first_name, cam.last_name, cam.dob, cam.emergency_contact
             FROM camp_campers cc
             JOIN campers cam ON cam.id = cc.camper_id
             WHERE cc.camp_id = ?

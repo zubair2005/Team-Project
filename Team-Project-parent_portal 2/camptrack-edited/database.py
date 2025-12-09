@@ -39,7 +39,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY,
                 username TEXT NOT NULL UNIQUE,
-                role TEXT NOT NULL CHECK (role IN ('admin','coordinator','leader','parent')),
+                role TEXT NOT NULL CHECK (role IN ('admin','coordinator','leader')),
                 enabled INTEGER NOT NULL DEFAULT 1,
                 password TEXT NOT NULL DEFAULT ''
             );
@@ -47,53 +47,6 @@ def init_db() -> None:
             -- Exactly one active coordinator and one active admin via partial unique indexes
             CREATE UNIQUE INDEX IF NOT EXISTS one_coordinator ON users(role) WHERE role='coordinator' AND enabled=1;
             CREATE UNIQUE INDEX IF NOT EXISTS one_admin ON users(role) WHERE role='admin' AND enabled=1;
-
-            -- Parent-camper table: allows parent to be associated with multiple campers
-            CREATE TABLE IF NOT EXISTS parent_campers (
-                id INTEGER PRIMARY KEY,
-                parent_user_id INTEGER NOT NULL,
-                camper_id INTEGER NOT NULL,
-                UNIQUE(parent_user_id, camper_id),
-                FOREIGN KEY (parent_user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (camper_id) REFERENCES campers(id) ON DELETE CASCADE
-            );
-
-            -- Consent forms table: stores yes/no consent and optional notes
-            CREATE TABLE IF NOT EXISTS consent_forms (
-                id INTEGER PRIMARY KEY,
-                parent_user_id INTEGER NOT NULL,
-                camper_id INTEGER NOT NULL,
-                camp_id INTEGER NOT NULL,
-                consent INTEGER NOT NULL,                -- 0 = no, 1 = yes
-                notes TEXT NOT NULL DEFAULT '',
-                submitted_at TEXT NOT NULL,
-                FOREIGN KEY (parent_user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (camper_id) REFERENCES campers(id) ON DELETE CASCADE,
-                FOREIGN KEY (camp_id) REFERENCES camps(id) ON DELETE CASCADE
-            );
-
-            -- Camper feedback table: stores free‑text feedback per camper per camp
-            CREATE TABLE IF NOT EXISTS camper_feedback (
-                id INTEGER PRIMARY KEY,
-                parent_user_id INTEGER NOT NULL,
-                camper_id INTEGER NOT NULL,
-                camp_id INTEGER NOT NULL,
-                feedback TEXT NOT NULL,
-                submitted_at TEXT NOT NULL,
-                FOREIGN KEY (parent_user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (camper_id) REFERENCES campers(id) ON DELETE CASCADE,
-                FOREIGN KEY (camp_id) REFERENCES camps(id) ON DELETE CASCADE
-            );
-
-            -- Notifications table
-            CREATE TABLE IF NOT EXISTS notifications (
-                id INTEGER PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                message TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                is_read INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            );
 
             CREATE TABLE IF NOT EXISTS camps (
                 id INTEGER PRIMARY KEY,
@@ -188,15 +141,6 @@ def init_db() -> None:
                 FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE SET NULL
             );
             """,
-        )
-
-        ## to overwrite consent forms 
-
-        conn.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS unique_consent_form
-            ON consent_forms(parent_user_id, camper_id, camp_id);
-            """
         )
 
 

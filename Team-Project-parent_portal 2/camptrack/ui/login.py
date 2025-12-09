@@ -1,12 +1,11 @@
 """Login UI and session handoff for CampTrack."""
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 from typing import Callable, Dict, Optional
 
 from services import authenticate
-from ui import admin, coordinator, leader, parent
-from ui import theme as app_theme
+from ui import admin, coordinator, leader
 
 
 RoleBuilder = Callable[[tk.Misc, Dict[str, str], Callable[[], None]], tk.Widget]
@@ -16,7 +15,6 @@ ROLE_BUILDERS: Dict[str, RoleBuilder] = {
     "admin": admin.build_dashboard,
     "coordinator": coordinator.build_dashboard,
     "leader": leader.build_dashboard,
-    "parent": parent.build_dashboard,
 }
 
 
@@ -26,39 +24,38 @@ class CampTrackApp:
         self.root.title("CampTrack - Login")
         self.root.geometry("420x280")
         self.root.resizable(True, True)
-        app_theme.apply_theme(self.root, mode="light")
 
         self.active_dashboard: Optional[tk.Widget] = None
 
         self._build_login_frame()
 
     def _build_login_frame(self) -> None:
-        self.login_frame = ttk.Frame(self.root, padding=20)
+        self.login_frame = tk.Frame(self.root, padx=20, pady=20)
         self.login_frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(self.login_frame, text="Welcome to CampTrack", font=("Helvetica", 18, "bold")).pack(pady=(0, 16))
+        tk.Label(self.login_frame, text="CampTrack", font=("Helvetica", 18, "bold")).pack(pady=(0, 16))
 
-        form = ttk.Frame(self.login_frame)
+        form = tk.Frame(self.login_frame)
         form.pack()
 
-        ttk.Label(form, text="Username").grid(row=0, column=0, sticky=tk.W, pady=4)
-        self.username_entry = ttk.Entry(form, width=30)
+        tk.Label(form, text="Username").grid(row=0, column=0, sticky=tk.W, pady=4)
+        self.username_entry = tk.Entry(form, width=30)
         self.username_entry.grid(row=0, column=1, pady=4)
         self.username_entry.insert(0, "admin")
 
-        ttk.Label(form, text="Password (blank)").grid(row=1, column=0, sticky=tk.W, pady=4)
-        self.password_entry = ttk.Entry(form, show="*", width=30)
+        tk.Label(form, text="Password (blank)").grid(row=1, column=0, sticky=tk.W, pady=4)
+        self.password_entry = tk.Entry(form, show="*", width=30)
         self.password_entry.grid(row=1, column=1, pady=4)
 
-        button_frame = ttk.Frame(self.login_frame)
+        button_frame = tk.Frame(self.login_frame)
         button_frame.pack(pady=16)
 
         self.login_status = tk.StringVar()
-        status_label = ttk.Label(self.login_frame, textvariable=self.login_status, style="Error.TLabel")
+        status_label = tk.Label(self.login_frame, textvariable=self.login_status, fg="red")
         status_label.pack()
 
-        ttk.Button(button_frame, text="Login", width=14, style="Primary.TButton", command=self._handle_login).pack(side=tk.LEFT, padx=4)
-        ttk.Button(button_frame, text="Quit", width=14, command=self.root.quit).pack(side=tk.LEFT, padx=4)
+        tk.Button(button_frame, text="Login", width=14, command=self._handle_login).pack(side=tk.LEFT, padx=4)
+        tk.Button(button_frame, text="Quit", width=14, command=self.root.quit).pack(side=tk.LEFT, padx=4)
 
         self.password_entry.bind("<Return>", lambda _: self._handle_login())
         self.username_entry.focus_set()
