@@ -2,6 +2,7 @@
 
 import tkinter as tk
 import os
+import csv
 import json
 import sqlite3
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -31,6 +32,10 @@ from services import (
     get_camp,
     normalize_uk_phone_to_formatted,
     update_camper,
+    # Parent/consent features
+    list_users,
+    list_parent_campers,
+    get_consent_form,
 )
 from ui.components import MessageBoard, Table, ScrollFrame
 from ui.theme import get_palette, tint
@@ -655,6 +660,17 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             def _update_age_label() -> None:
                 ttk.Label(outer, text=f"Age: { _calc_age_yrs(dob_var.get() or '') }", style="Muted.TLabel").pack(anchor=tk.W)
             _update_age_label()
+            # Read-only parent/consent info (if available)
+            try:
+                info_frame = ttk.Frame(outer)
+                info_frame.pack(fill=tk.X, pady=(4, 8))
+                parent_names = str(camper.get("parent_names") or "").strip()
+                consent_flag = camper.get("consent", None)
+                ttk.Label(info_frame, text=f"Parents: {parent_names or '—'}", style="Muted.TLabel").pack(anchor=tk.W)
+                if consent_flag is not None:
+                    ttk.Label(info_frame, text=f"Consent: {consent_flag}", style="Muted.TLabel").pack(anchor=tk.W)
+            except Exception:
+                pass
             # Debug toggle: show raw record
             debug_row = ttk.Frame(outer)
             debug_row.pack(fill=tk.X, pady=(6, 2))
@@ -778,6 +794,13 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             ttk.Label(card, text=f"DOB: {dob}  •  { _calc_age_yrs(dob) }", style="Muted.TLabel").pack()
             ttk.Label(card, text=f"Emergency: {camper.get('emergency_contact','')}", style="Muted.TLabel").pack()
             ttk.Label(card, text=f"Food/day: {camper.get('food_units_per_day',0)}", style="Muted.TLabel").pack()
+            # Parent/consent summary (if available)
+            parent_flag = camper.get("parent_linked", None)
+            consent_flag = camper.get("consent", None)
+            if parent_flag is not None:
+                ttk.Label(card, text=f"Parent linked: {parent_flag}", style="Muted.TLabel").pack()
+            if consent_flag is not None:
+                ttk.Label(card, text=f"Consent: {consent_flag}", style="Muted.TLabel").pack()
             # Click to open profile
             _bind_card_click(card, camper)
             # Store for layout
@@ -891,6 +914,40 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             campers.sort(key=lambda r: (str(r.get("dob") or "9999-99-99")))
         elif mode == "DOB Desc":
             campers.sort(key=lambda r: (str(r.get("dob") or "0000-00-00")), reverse=True)
+        # Enrich with parent/consent info for display
+        try:
+            parents = [u for u in list_users() if u.get("role") == "parent" and u.get("enabled")]
+            camper_to_parents: Dict[int, list] = {}
+            for p in parents:
+                try:
+                    linked = list_parent_campers(p["id"])
+                except Exception:
+                    linked = []
+                for c in linked:
+                    camper_to_parents.setdefault(int(c["id"]), []).append(p)
+            # Compute and attach fields for current target camp
+            for r in campers:
+                cid = int(r.get("camper_id") or r.get("id") or 0)
+                plist = camper_to_parents.get(cid, [])
+                r["parent_linked"] = "Y" if plist else "N"
+                # Consent Y if any parent consented for this camp
+                consent_yes = False
+                if plist:
+                    for p in plist:
+                        try:
+                            cf = get_consent_form(p["id"], cid, int(target_camp_id))
+                        except Exception:
+                            cf = None
+                        if cf and int(cf.get("consent") or 0) == 1:
+                            consent_yes = True
+                            break
+                r["consent"] = "Y" if consent_yes else ("N" if plist else "N")
+                # Parent names (for modal)
+                r["parent_names"] = ", ".join(str(p["username"]) for p in plist) if plist else ""
+        except Exception:
+            # If any error, omit these fields silently
+            pass
+
         # Render gallery with current campers list
         try:
             _render_gallery(campers)
@@ -998,9 +1055,94 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         tk.Button(dialog, text="Update", command=update_selected).pack(pady=6)
         tk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=6)
 
+    # Export campers to CSV (with parent/consent columns)
+    def export_csv() -> None:
+        selection = assignments_table.selection()
+        if not selection:
+            messagebox.showinfo("Export", "Select an assignment from 'Camps & Pay' tab first.")
+            return
+        assignment_id = int(selection[0])
+        assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
+        if assignment is None:
+            messagebox.showerror("Export", "Assignment not found.")
+            return
+        camp_id = assignment["camp_id"]
+        campers = list_camp_campers(camp_id)
+        if not campers:
+            messagebox.showinfo("Export", "No campers to export for this camp.")
+            return
+        # Build camper → parents map
+        try:
+            parents = [u for u in list_users() if u.get("role") == "parent" and u.get("enabled")]
+        except Exception:
+            parents = []
+        camper_to_parents: Dict[int, list] = {}
+        for parent_user in parents:
+            try:
+                linked_campers = list_parent_campers(parent_user["id"])
+            except Exception:
+                linked_campers = []
+            for c in linked_campers:
+                camper_to_parents.setdefault(int(c["id"]), []).append(parent_user)
+        # Ask where to save the CSV
+        path = filedialog.asksaveasfilename(
+            title="Save campers CSV",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv")],
+            initialfile=f"camp_{camp_id}_campers.csv",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "First name",
+                    "Last name",
+                    "DOB",
+                    "Emergency contact",
+                    "Food units/day",
+                    "Parent linked (Y/N)",
+                    "Parent name(s)",
+                    "Consent given (Y/N)",
+                ])
+                for camper in campers:
+                    cid = int(camper["camper_id"])
+                    plist = camper_to_parents.get(cid, [])
+                    has_parent = "Y" if plist else "N"
+                    parent_names = ", ".join(p["username"] for p in plist)
+                    consent_flag = ""
+                    if plist:
+                        consent_yes = False
+                        for p in plist:
+                            try:
+                                cf = get_consent_form(p["id"], cid, int(camp_id))
+                            except Exception:
+                                cf = None
+                            if cf and int(cf.get("consent") or 0) == 1:
+                                consent_yes = True
+                                break
+                        consent_flag = "Y" if consent_yes else "N"
+                    writer.writerow([
+                        camper["first_name"],
+                        camper["last_name"],
+                        camper["dob"],
+                        camper["emergency_contact"],
+                        camper["food_units_per_day"],
+                        has_parent,
+                        parent_names,
+                        consent_flag,
+                    ])
+        except OSError as exc:
+            messagebox.showerror("Export", f"Failed to write CSV:\n{exc}")
+            return
+        messagebox.showinfo("Export complete", f"Exported {len(campers)} camper(s) to:\n{path}")
+
     action_row = ttk.Frame(campers_frame)
     action_row.pack(fill=tk.X, pady=4)
     ttk.Button(action_row, text="Import campers from CSV", command=import_csv).pack(side=tk.LEFT, padx=4)
+    ttk.Button(action_row, text="Adjust food units", command=adjust_food_units).pack(side=tk.LEFT, padx=4)
+    ttk.Button(action_row, text="Export campers to CSV", command=export_csv).pack(side=tk.LEFT, padx=4)
 
     # ========== Tab 3: Activities ==========
     tab_activities = tk.Frame(notebook)
@@ -1156,20 +1298,69 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             return
         activity = activities[index]
 
-        campers = list_camp_campers(assignment["camp_id"])
-        if not campers:
+        camp_id = assignment["camp_id"]
+        all_campers = list_camp_campers(camp_id)
+        if not all_campers:
             messagebox.showinfo("Activity", "No campers available to assign.")
             return
+
+        # Consent gating: build eligible list
+        try:
+            parents = [u for u in list_users() if u.get("role") == "parent" and u.get("enabled")]
+        except Exception:
+            parents = []
+        camper_to_parents: Dict[int, list] = {}
+        for p in parents:
+            try:
+                linked = list_parent_campers(p["id"])
+            except Exception:
+                linked = []
+            for c in linked:
+                camper_to_parents.setdefault(int(c["id"]), []).append(p)
+
+        eligible_campers: list = []
+        ineligible_names: list = []
+        for c in all_campers:
+            cid = int(c.get("camper_id"))
+            plist = camper_to_parents.get(cid, [])
+            consent_yes = False
+            for p in plist:
+                try:
+                    cf = get_consent_form(p["id"], cid, int(camp_id))
+                except Exception:
+                    cf = None
+                if cf and int(cf.get("consent") or 0) == 1:
+                    consent_yes = True
+                    break
+            if consent_yes:
+                eligible_campers.append(c)
+            else:
+                ineligible_names.append(f"{c.get('first_name','')} {c.get('last_name','')}")
+
+        if not eligible_campers:
+            msg = "No campers with parental consent are available for this camp."
+            if ineligible_names:
+                msg += "\n\nCampers without consent:\n- " + "\n- ".join(ineligible_names)
+            messagebox.showinfo("Activity", msg)
+            return
+
+        if ineligible_names:
+            messagebox.showwarning(
+                "Consent required",
+                "The following campers cannot be assigned because no parent consent "
+                "has been recorded for this camp:\n\n"
+                + "\n".join(f"- {name}" for name in ineligible_names)
+            )
 
         dialog = tk.Toplevel(container)
         dialog.title("Bulk assign campers to activity")
         dialog.geometry("400x360")
 
-        ttk.Label(dialog, text="Select multiple campers (Ctrl/Cmd + click)", style="Muted.TLabel", font=("Helvetica", 10, "italic")).pack(pady=4)
+        ttk.Label(dialog, text="Select campers with consent (Ctrl/Cmd + click)", style="Muted.TLabel", font=("Helvetica", 10, "italic")).pack(pady=4)
 
         listbox = tk.Listbox(dialog, selectmode=tk.MULTIPLE)
         listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        for camper in campers:
+        for camper in eligible_campers:
             listbox.insert(tk.END, f"{camper['first_name']} {camper['last_name']}")
 
         def assign_selected() -> None:
@@ -1177,7 +1368,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             if not sel_indices:
                 messagebox.showinfo("Assign", "Select at least one camper.")
                 return
-            camper_ids = [campers[idx]["id"] for idx in sel_indices]
+            camper_ids = [eligible_campers[idx]["camper_id"] for idx in sel_indices]
             try:
                 assign_campers_to_activity(activity["id"], camper_ids)
                 message = f"Assigned {len(camper_ids)} camper(s) to activity."

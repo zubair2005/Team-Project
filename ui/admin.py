@@ -14,10 +14,67 @@ from services import (
     update_user_username,
     count_roles_total,
     count_roles_enabled,
+    # Parent linking + data
+    add_parent_camper,
+    list_parent_campers,
+    list_campers,
 )
 from ui.components import MessageBoard, ScrollFrame
 from ui.theme import get_palette, tint
 
+def _build_parent_camper_tab(container: tk.Widget) -> None:
+    """Admin UI to link parent users to campers."""
+    selector_frame = ttk.Frame(container)
+    selector_frame.pack(fill=tk.X, padx=10, pady=10)
+    ttk.Label(selector_frame, text="Parent:").grid(row=0, column=0, sticky="w", padx=(0, 5))
+    ttk.Label(selector_frame, text="Camper:").grid(row=0, column=2, sticky="w", padx=(10, 5))
+    parents = [u for u in list_users() if u["role"] == "parent" and u["enabled"]]
+    campers = list_campers()
+    parent_labels = [f'{p["username"]} (id={p["id"]})' for p in parents]
+    camper_labels = [f'{c["first_name"]} {c["last_name"]} (id={c["id"]})' for c in campers]
+    parent_label_to_id = {label: p["id"] for label, p in zip(parent_labels, parents)}
+    camper_label_to_id = {label: c["id"] for label, c in zip(camper_labels, campers)}
+    parent_var = tk.StringVar()
+    camper_var = tk.StringVar()
+    parent_cb = ttk.Combobox(selector_frame, textvariable=parent_var, values=parent_labels, state="readonly", width=30)
+    parent_cb.grid(row=0, column=1, sticky="w")
+    camper_cb = ttk.Combobox(selector_frame, textvariable=camper_var, values=camper_labels, state="readonly", width=30)
+    camper_cb.grid(row=0, column=3, sticky="w")
+    list_frame = ttk.Frame(container)
+    list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+    ttk.Label(list_frame, text="Linked campers for selected parent:").pack(anchor=tk.W)
+    columns = ("camper",)
+    tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=8)
+    tree.heading("camper", text="Camper")
+    tree.column("camper", width=320, anchor=tk.W)
+    tree.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+    def _refresh_links(*_args) -> None:
+        tree.delete(*tree.get_children())
+        parent_label = parent_var.get()
+        if not parent_label:
+            return
+        parent_id = parent_label_to_id[parent_label]
+        linked = list_parent_campers(parent_id)
+        for c in linked:
+            camper_name = f'{c["first_name"]} {c["last_name"]} (id={c["id"]})'
+            tree.insert("", tk.END, values=(camper_name,))
+    def _link_parent_camper() -> None:
+        parent_label = parent_var.get()
+        camper_label = camper_var.get()
+        if not parent_label or not camper_label:
+            messagebox.showwarning("Missing selection", "Please select both a parent and a camper.")
+            return
+        parent_id = parent_label_to_id[parent_label]
+        camper_id = camper_label_to_id[camper_label]
+        ok = add_parent_camper(parent_id, camper_id)
+        if not ok:
+            messagebox.showerror("Error", "Failed to link parent and camper.")
+            return
+        messagebox.showinfo("Linked", "Parent and camper have been linked.")
+        _refresh_links()
+    link_btn = ttk.Button(selector_frame, text="Link Parent to Camper", command=_link_parent_camper)
+    link_btn.grid(row=0, column=4, padx=(10, 0))
+    parent_cb.bind("<<ComboboxSelected>>", _refresh_links)
 
 def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callable[[], None]) -> tk.Frame:
     # Root container for fixed header + scrollable content
@@ -308,7 +365,12 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     ttk.Button(selection_frame, text="Disable", command=lambda: set_enabled(False)).pack(side=tk.LEFT, padx=4)
     ttk.Button(selection_frame, text="Delete", command=delete_selected).pack(side=tk.LEFT, padx=4)
 
-    # ========== Tab 2: Chat ==========
+    # ========== Tab 2: Parent–Camper Links ==========
+    tab_links = tk.Frame(notebook)
+    notebook.add(tab_links, text="Parent–Camper Links")
+    _build_parent_camper_tab(tab_links)
+
+    # ========== Tab 3: Chat ==========
     tab_chat = tk.Frame(notebook)
     notebook.add(tab_chat, text="Chat")
 

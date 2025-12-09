@@ -16,6 +16,51 @@ def _dict_cursor(conn: sqlite3.Connection) -> sqlite3.Connection:
 
 
 # =========================
+# Parent/Consent table init
+# =========================
+def _ensure_parent_tables() -> None:
+    """Create parent-related tables if they don't exist. Safe to call multiple times."""
+    with _connect() as conn:
+        # Parent ↔ Camper linking
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS parent_campers (
+                parent_id INTEGER NOT NULL,
+                camper_id INTEGER NOT NULL,
+                UNIQUE(parent_id, camper_id)
+            );
+            """
+        )
+        # Parent consent per camper per camp
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS parent_consents (
+                parent_id INTEGER NOT NULL,
+                camper_id INTEGER NOT NULL,
+                camp_id   INTEGER NOT NULL,
+                consent   INTEGER NOT NULL DEFAULT 0,
+                notes     TEXT,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(parent_id, camper_id, camp_id)
+            );
+            """
+        )
+        # Parent feedback per camper per camp (free text, many entries allowed)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS parent_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                parent_id INTEGER NOT NULL,
+                camper_id INTEGER NOT NULL,
+                camp_id   INTEGER NOT NULL,
+                feedback  TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+
+
+# =========================
 # UK phone (+44) utilities
 # =========================
 _UK_FORMATTED_RE = re.compile(r"^\+44\s\d{4}\s\d{6}$")  # +44 XXXX XXXXXX (10 digits after +44, grouped 4+6)
@@ -207,6 +252,19 @@ def list_users() -> List[Dict[str, Any]]:
     with _dict_cursor(_connect()) as conn:
         rows = conn.execute(
             "SELECT id, username, role, enabled FROM users ORDER BY role, username;"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def list_campers() -> List[Dict[str, Any]]:
+    """List all campers with core fields."""
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, first_name, last_name, dob, emergency_contact
+            FROM campers
+            ORDER BY LOWER(last_name), LOWER(first_name);
+            """
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -880,6 +938,137 @@ def list_camp_campers(camp_id: int) -> List[Dict[str, Any]]:
             (camp_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+# =========================
+# Parent / Consent services
+# =========================
+def add_parent_camper(parent_id: int, camper_id: int) -> bool:
+    """Link a parent user to a camper (idempotent)."""
+    _ensure_parent_tables()
+    try:
+        with _connect() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO parent_campers(parent_id, camper_id) VALUES (?, ?);",
+                (parent_id, camper_id),
+            )
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def list_parent_campers(parent_id: int) -> List[Dict[str, Any]]:
+    """Return campers linked to the given parent user."""
+    _ensure_parent_tables()
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT c.id, c.first_name, c.last_name, c.dob, c.emergency_contact
+            FROM parent_campers pc
+            JOIN campers c ON c.id = pc.camper_id
+            WHERE pc.parent_id = ?
+            ORDER BY LOWER(c.last_name), LOWER(c.first_name);
+            """,
+            (parent_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def list_camps_for_camper(camper_id: int) -> List[Dict[str, Any]]:
+    """List camps a camper is enrolled in."""
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT c.id, c.name, c.location, c.start_date, c.end_date, c.type
+            FROM camp_campers cc
+            JOIN camps c ON c.id = cc.camp_id
+            WHERE cc.camper_id = ?
+            ORDER BY c.start_date, c.name;
+            """,
+            (camper_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def list_camps_for_parent(parent_id: int) -> List[Dict[str, Any]]:
+    """List unique camps associated with any camper linked to a parent."""
+    _ensure_parent_tables()
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT c.id, c.name, c.location, c.start_date, c.end_date, c.type
+            FROM parent_campers pc
+            JOIN camp_campers cc ON cc.camper_id = pc.camper_id
+            JOIN camps c ON c.id = cc.camp_id
+            WHERE pc.parent_id = ?
+            ORDER BY c.start_date, c.name;
+            """,
+            (parent_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_consent_form(parent_id: int, camper_id: int, camp_id: int) -> Optional[Dict[str, Any]]:
+    """Get the stored consent row for parent/camper/camp, if any."""
+    _ensure_parent_tables()
+    with _dict_cursor(_connect()) as conn:
+        row = conn.execute(
+            """
+            SELECT parent_id, camper_id, camp_id, consent, notes, updated_at
+            FROM parent_consents
+            WHERE parent_id = ? AND camper_id = ? AND camp_id = ?;
+            """,
+            (parent_id, camper_id, camp_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def submit_consent_form(parent_user_id: int, camper_id: int, camp_id: int, consent: bool, notes: str) -> None:
+    """Upsert a yes/no consent with optional notes."""
+    _ensure_parent_tables()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO parent_consents(parent_id, camper_id, camp_id, consent, notes)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(parent_id, camper_id, camp_id)
+            DO UPDATE SET consent = excluded.consent, notes = excluded.notes, updated_at = CURRENT_TIMESTAMP;
+            """,
+            (parent_user_id, camper_id, camp_id, 1 if consent else 0, (notes or "").strip()),
+        )
+
+
+def list_daily_reports_for_camper(camper_id: int) -> List[Dict[str, Any]]:
+    """List daily reports for any camp the camper is in, showing leader username."""
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT dr.date, u.username AS leader, dr.notes
+            FROM camp_campers cc
+            JOIN daily_reports dr ON dr.camp_id = cc.camp_id
+            LEFT JOIN users u ON u.id = dr.leader_user_id
+            WHERE cc.camper_id = ?
+            ORDER BY dr.date DESC;
+            """,
+            (camper_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def submit_feedback(parent_user_id: int, camper_id: int, camp_id: int, feedback: str) -> None:
+    """Record free‑text feedback from a parent for a specific camper and camp."""
+    _ensure_parent_tables()
+    text = (feedback or "").strip()
+    if not text:
+        return
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO parent_feedback(parent_id, camper_id, camp_id, feedback)
+            VALUES (?, ?, ?, ?);
+            """,
+            (parent_user_id, camper_id, camp_id, text),
+        )
 
 
 def update_camp_camper_food(camp_camper_id: int, food_units_per_day: int) -> None:
