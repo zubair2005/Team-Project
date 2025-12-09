@@ -39,7 +39,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY,
                 username TEXT NOT NULL UNIQUE,
-                role TEXT NOT NULL CHECK (role IN ('admin','coordinator','leader')),
+                role TEXT NOT NULL CHECK (role IN ('admin','coordinator','leader','parent')),
                 enabled INTEGER NOT NULL DEFAULT 1,
                 password TEXT NOT NULL DEFAULT ''
             );
