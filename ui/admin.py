@@ -28,18 +28,40 @@ def _build_parent_camper_tab(container: tk.Widget) -> None:
     selector_frame.pack(fill=tk.X, padx=10, pady=10)
     ttk.Label(selector_frame, text="Parent:").grid(row=0, column=0, sticky="w", padx=(0, 5))
     ttk.Label(selector_frame, text="Camper:").grid(row=0, column=2, sticky="w", padx=(10, 5))
-    parents = [u for u in list_users() if u["role"] == "parent" and u["enabled"]]
-    campers = list_campers()
-    parent_labels = [f'{p["username"]} (id={p["id"]})' for p in parents]
-    camper_labels = [f'{c["first_name"]} {c["last_name"]} (id={c["id"]})' for c in campers]
-    parent_label_to_id = {label: p["id"] for label, p in zip(parent_labels, parents)}
-    camper_label_to_id = {label: c["id"] for label, c in zip(camper_labels, campers)}
+    # Mutable mappings so reload can update them in-place
+    parent_label_to_id: Dict[str, int] = {}
+    camper_label_to_id: Dict[str, int] = {}
     parent_var = tk.StringVar()
     camper_var = tk.StringVar()
-    parent_cb = ttk.Combobox(selector_frame, textvariable=parent_var, values=parent_labels, state="readonly", width=30)
+    parent_cb = ttk.Combobox(selector_frame, textvariable=parent_var, values=(), state="readonly", width=30, exportselection=False)
     parent_cb.grid(row=0, column=1, sticky="w")
-    camper_cb = ttk.Combobox(selector_frame, textvariable=camper_var, values=camper_labels, state="readonly", width=30)
+    camper_cb = ttk.Combobox(selector_frame, textvariable=camper_var, values=(), state="readonly", width=30, exportselection=False)
     camper_cb.grid(row=0, column=3, sticky="w")
+    def _reload_options() -> None:
+        """Refresh parent and camper lists from DB."""
+        parents = [u for u in list_users() if u.get("role") == "parent" and u.get("enabled")]
+        campers = list_campers()
+        # Build fresh labels
+        p_labels = [f"{p.get('username')} (id={p.get('id')})" for p in parents]
+        c_labels = [f"{c.get('first_name')} {c.get('last_name')} (id={c.get('id')})" for c in campers]
+        # Update mappings
+        parent_label_to_id.clear()
+        parent_label_to_id.update({label: int(p["id"]) for label, p in zip(p_labels, parents)})
+        camper_label_to_id.clear()
+        camper_label_to_id.update({label: int(c["id"]) for label, c in zip(c_labels, campers)})
+        # Preserve selection if still valid
+        cur_parent = parent_var.get()
+        cur_camper = camper_var.get()
+        parent_cb.configure(values=p_labels or ("",))
+        camper_cb.configure(values=c_labels or ("",))
+        if cur_parent not in parent_label_to_id:
+            parent_var.set("" if p_labels else "")
+        if cur_camper not in camper_label_to_id:
+            camper_var.set("" if c_labels else "")
+    # Initial load and also reload on focus/click
+    _reload_options()
+    parent_cb.bind("<Button-1>", lambda _e: _reload_options())
+    camper_cb.bind("<Button-1>", lambda _e: _reload_options())
     list_frame = ttk.Frame(container)
     list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
     ttk.Label(list_frame, text="Linked campers for selected parent:").pack(anchor=tk.W)
@@ -64,8 +86,13 @@ def _build_parent_camper_tab(container: tk.Widget) -> None:
         if not parent_label or not camper_label:
             messagebox.showwarning("Missing selection", "Please select both a parent and a camper.")
             return
-        parent_id = parent_label_to_id[parent_label]
-        camper_id = camper_label_to_id[camper_label]
+        # Ensure options are current
+        _reload_options()
+        if parent_label not in parent_label_to_id or camper_label not in camper_label_to_id:
+            messagebox.showwarning("Selections out of date", "Options changed. Please reselect parent and camper.")
+            return
+        parent_id = parent_label_to_id.get(parent_label)
+        camper_id = camper_label_to_id.get(camper_label)
         ok = add_parent_camper(parent_id, camper_id)
         if not ok:
             messagebox.showerror("Error", "Failed to link parent and camper.")
@@ -74,6 +101,8 @@ def _build_parent_camper_tab(container: tk.Widget) -> None:
         _refresh_links()
     link_btn = ttk.Button(selector_frame, text="Link Parent to Camper", command=_link_parent_camper)
     link_btn.grid(row=0, column=4, padx=(10, 0))
+    # Manual refresh button
+    ttk.Button(selector_frame, text="Refresh", command=_reload_options).grid(row=0, column=5, padx=(10, 0))
     parent_cb.bind("<<ComboboxSelected>>", _refresh_links)
 
 def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callable[[], None]) -> tk.Frame:
