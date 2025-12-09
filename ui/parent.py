@@ -82,7 +82,8 @@ def _build_schedules_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
 
     top = ttk.Frame(tab)
     ttk.Label(top, text="Select Camper:").pack(side=tk.LEFT)
-    camper_menu = ttk.OptionMenu(top, selected_camper, camper_names[0], *camper_names, command=update_camp_list)
+    camper_menu = ttk.Combobox(top, textvariable=selected_camper, values=camper_names, state="readonly", width=38)
+    camper_menu.bind("<<ComboboxSelected>>", lambda _e: update_camp_list())
     camper_menu.pack(side=tk.LEFT, padx=(5, 0))
     top.pack(anchor=tk.W)
 
@@ -168,7 +169,8 @@ def _build_progress_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
     selected_camper = tk.StringVar(value=camper_names[0])
     top_row = ttk.Frame(tab)
     ttk.Label(top_row, text="Select Camper:").pack(side=tk.LEFT)
-    camper_menu = ttk.OptionMenu(top_row, selected_camper, camper_names[0], *camper_names)
+    camper_menu = ttk.Combobox(top_row, textvariable=selected_camper, values=camper_names, state="readonly", width=38)
+    camper_menu.bind("<<ComboboxSelected>>", lambda _e: refresh_reports())
     camper_menu.pack(side=tk.LEFT, padx=(5, 0))
     top_row.pack(anchor=tk.W, pady=(0, 5))
 
@@ -226,6 +228,5 @@ def _build_progress_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
         messagebox.showinfo("Feedback submitted", "Your feedback has been recorded.")
 
     selected_camper.trace_add("write", lambda *_: refresh_reports())
-    refresh_reports()
 
 
