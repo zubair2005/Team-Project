@@ -982,13 +982,27 @@ def list_camp_campers(camp_id: int) -> List[Dict[str, Any]]:
 # =========================
 # Parent / Consent services
 # =========================
+def _parent_campers_parent_col() -> str:
+    """Return the actual parent column name in parent_campers ('parent_id' or legacy 'parent_user_id')."""
+    try:
+        with _dict_cursor(_connect()) as conn:
+            cols = [r["name"] for r in conn.execute("PRAGMA table_info(parent_campers);").fetchall()]
+        if "parent_id" in cols:
+            return "parent_id"
+        if "parent_user_id" in cols:
+            return "parent_user_id"
+    except Exception:
+        pass
+    return "parent_id"
+
 def add_parent_camper(parent_id: int, camper_id: int) -> bool:
     """Link a parent user to a camper (idempotent)."""
     _ensure_parent_tables()
     try:
+        col = _parent_campers_parent_col()
         with _connect() as conn:
             conn.execute(
-                "INSERT OR IGNORE INTO parent_campers(parent_id, camper_id) VALUES (?, ?);",
+                f"INSERT OR IGNORE INTO parent_campers({col}, camper_id) VALUES (?, ?);",
                 (parent_id, camper_id),
             )
         return True
@@ -999,13 +1013,14 @@ def add_parent_camper(parent_id: int, camper_id: int) -> bool:
 def list_parent_campers(parent_id: int) -> List[Dict[str, Any]]:
     """Return campers linked to the given parent user."""
     _ensure_parent_tables()
+    col = _parent_campers_parent_col()
     with _dict_cursor(_connect()) as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT c.id, c.first_name, c.last_name, c.dob, c.emergency_contact
             FROM parent_campers pc
             JOIN campers c ON c.id = pc.camper_id
-            WHERE pc.parent_id = ?
+            WHERE pc.{col} = ?
             ORDER BY LOWER(c.last_name), LOWER(c.first_name);
             """,
             (parent_id,),
@@ -1032,14 +1047,15 @@ def list_camps_for_camper(camper_id: int) -> List[Dict[str, Any]]:
 def list_camps_for_parent(parent_id: int) -> List[Dict[str, Any]]:
     """List unique camps associated with any camper linked to a parent."""
     _ensure_parent_tables()
+    col = _parent_campers_parent_col()
     with _dict_cursor(_connect()) as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT DISTINCT c.id, c.name, c.location, c.start_date, c.end_date, c.type
             FROM parent_campers pc
             JOIN camp_campers cc ON cc.camper_id = pc.camper_id
             JOIN camps c ON c.id = cc.camp_id
-            WHERE pc.parent_id = ?
+            WHERE pc.{col} = ?
             ORDER BY c.start_date, c.name;
             """,
             (parent_id,),
