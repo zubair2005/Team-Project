@@ -24,6 +24,16 @@ from ui.theme import get_palette, tint
 
 def _build_parent_camper_tab(container: tk.Widget) -> None:
     """Admin UI to link parent users to campers."""
+    import datetime as _dt
+
+    def _is_adult(dob_str: str) -> bool:
+        try:
+            dob = _dt.datetime.strptime(dob_str, "%Y-%m-%d").date()
+        except Exception:
+            return False
+        today = _dt.date.today()
+        years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        return years >= 18
     selector_frame = ttk.Frame(container)
     selector_frame.pack(fill=tk.X, padx=10, pady=10)
     ttk.Label(selector_frame, text="Parent:").grid(row=0, column=0, sticky="w", padx=(0, 5))
@@ -31,6 +41,7 @@ def _build_parent_camper_tab(container: tk.Widget) -> None:
     # Mutable mappings so reload can update them in-place
     parent_label_to_id: Dict[str, int] = {}
     camper_label_to_id: Dict[str, int] = {}
+    camper_id_to_dob: Dict[int, str] = {}
     parent_var = tk.StringVar()
     camper_var = tk.StringVar()
     parent_cb = ttk.Combobox(selector_frame, textvariable=parent_var, values=(), state="readonly", width=30, exportselection=False)
@@ -49,6 +60,8 @@ def _build_parent_camper_tab(container: tk.Widget) -> None:
         parent_label_to_id.update({label: int(p["id"]) for label, p in zip(p_labels, parents)})
         camper_label_to_id.clear()
         camper_label_to_id.update({label: int(c["id"]) for label, c in zip(c_labels, campers)})
+        camper_id_to_dob.clear()
+        camper_id_to_dob.update({int(c["id"]): str(c.get("dob") or "") for c in campers})
         # Preserve selection if still valid
         cur_parent = parent_var.get()
         cur_camper = camper_var.get()
@@ -93,6 +106,11 @@ def _build_parent_camper_tab(container: tk.Widget) -> None:
             return
         parent_id = parent_label_to_id.get(parent_label)
         camper_id = camper_label_to_id.get(camper_label)
+        # Block linking for campers aged 18+
+        dob_txt = camper_id_to_dob.get(int(camper_id or 0), "")
+        if dob_txt and _is_adult(dob_txt):
+            messagebox.showerror("Not allowed", "This camper is 18 or older. Parent linking is not allowed.")
+            return
         ok = add_parent_camper(parent_id, camper_id)
         if not ok:
             messagebox.showerror("Error", "Failed to link parent and camper.")

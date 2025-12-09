@@ -517,6 +517,15 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             return f"{years} yrs"
         except Exception:
             return "—"
+    def _is_adult(dob_str: str) -> bool:
+        try:
+            import datetime as _dt
+            dob = _dt.datetime.strptime(dob_str, "%Y-%m-%d").date()
+            today = _dt.date.today()
+            years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+            return years >= 18
+        except Exception:
+            return False
 
     def _layout_gallery_cards() -> None:
         # Grid cards with auto-fit based on available width
@@ -929,10 +938,14 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             for r in campers:
                 cid = int(r.get("camper_id") or r.get("id") or 0)
                 plist = camper_to_parents.get(cid, [])
-                r["parent_linked"] = "Y" if plist else "N"
+                # Adult check overrides display
+                if _is_adult(str(r.get("dob") or "")):
+                    r["parent_linked"] = "Above 18"
+                else:
+                    r["parent_linked"] = "Y" if plist else "N"
                 # Consent Y if any parent consented for this camp
                 consent_yes = False
-                if plist:
+                if plist and r.get("parent_linked") != "Above 18":
                     for p in plist:
                         try:
                             cf = get_consent_form(p["id"], cid, int(target_camp_id))
