@@ -75,7 +75,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     pay_frame = ttk.Frame(tab_camps, style="Card.TFrame", padding=10)
     pay_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
 
-    total_pay_var = tk.StringVar(value="Total: 0.00")
+    total_pay_var = tk.StringVar(value="Total: £0.00")
     ttk.Label(pay_frame, textvariable=total_pay_var, font=("Helvetica", 13, "bold")).pack(side=tk.LEFT, padx=6)
 
     per_camp_text = tk.Text(pay_frame, height=3, width=60, state="disabled")
@@ -83,7 +83,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     def refresh_pay_summary() -> None:
         summary = get_leader_pay_summary(leader_id)
-        total_pay_var.set(f"Total: {summary['total_pay']:.2f}")
+        total_pay_var.set(f"Total: £{summary['total_pay']:.2f}")
         per_camp_text.config(state="normal")
         per_camp_text.delete("1.0", tk.END)
         if not summary["per_camp"]:
@@ -92,7 +92,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             for item in summary["per_camp"]:
                 per_camp_text.insert(
                     tk.END,
-                    f"{item['camp_name']}: {item['days']} day(s) • {item['pay']:.2f} units\n",
+                    f"{item['camp_name']}: {item['days']} day(s) • £{item['pay']:.2f}\n",
                 )
         per_camp_text.config(state="disabled")
 
