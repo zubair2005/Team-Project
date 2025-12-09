@@ -60,6 +60,42 @@ def _ensure_parent_tables() -> None:
         )
 
 
+def _ensure_parent_role_allowed() -> None:
+    """Rebuild users table role CHECK to include 'parent' if missing."""
+    with _dict_cursor(_connect()) as conn_ro:
+        row = conn_ro.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='users';"
+        ).fetchone()
+        sql = row["sql"] if row else ""
+    if "CHECK (role IN ('admin','coordinator','leader'))" in (sql or "") and "parent" not in sql:
+        with _connect() as conn:
+            conn.execute("PRAGMA foreign_keys=OFF;")
+            conn.execute("BEGIN;")
+            try:
+                conn.execute("ALTER TABLE users RENAME TO users_old;")
+                conn.execute(
+                    """
+                    CREATE TABLE users (
+                        id INTEGER PRIMARY KEY,
+                        username TEXT NOT NULL UNIQUE,
+                        role TEXT NOT NULL CHECK (role IN ('admin','coordinator','leader','parent')),
+                        enabled INTEGER NOT NULL DEFAULT 1,
+                        password TEXT NOT NULL DEFAULT ''
+                    );
+                    """
+                )
+                conn.execute(
+                    "INSERT INTO users(id, username, role, enabled, password) SELECT id, username, role, enabled, password FROM users_old;"
+                )
+                conn.execute("DROP TABLE users_old;")
+                conn.execute("COMMIT;")
+            except Exception:
+                conn.execute("ROLLBACK;")
+                raise
+            finally:
+                conn.execute("PRAGMA foreign_keys=ON;")
+
+
 # =========================
 # UK phone (+44) utilities
 # =========================
@@ -297,6 +333,8 @@ def count_roles_enabled() -> Dict[str, int]:
 
 def create_user(username: str, role: str) -> bool:
     try:
+        if role == "parent":
+            _ensure_parent_role_allowed()
         with _connect() as conn:
             conn.execute(
                 "INSERT INTO users(username, role, enabled, password) VALUES (?, ?, 1, '');",
