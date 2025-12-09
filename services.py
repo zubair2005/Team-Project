@@ -367,6 +367,19 @@ def update_user_username(user_id: int, new_username: str) -> bool:
 
 def delete_user(user_id: int) -> bool:
     try:
+        # Defense-in-depth: prevent deleting the sole remaining leader
+        with _dict_cursor(_connect()) as conn_ro:
+            row = conn_ro.execute("SELECT role FROM users WHERE id = ?;", (user_id,)).fetchone()
+            if row is None:
+                return False
+            role = str(row["role"])
+            if role == "leader":
+                count_row = conn_ro.execute(
+                    "SELECT COUNT(*) AS c FROM users WHERE role = 'leader';"
+                ).fetchone()
+                if int(count_row["c"] or 0) <= 1:
+                    # Block deletion if this is the last leader account
+                    return False
         with _connect() as conn:
             conn.execute("DELETE FROM users WHERE id = ?;", (user_id,))
         return True
