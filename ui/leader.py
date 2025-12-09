@@ -803,6 +803,12 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             ttk.Label(card, text=f"DOB: {dob}  •  { _calc_age_yrs(dob) }", style="Muted.TLabel").pack()
             ttk.Label(card, text=f"Emergency: {camper.get('emergency_contact','')}", style="Muted.TLabel").pack()
             ttk.Label(card, text=f"Food/day: {camper.get('food_units_per_day',0)}", style="Muted.TLabel").pack()
+            # Parent names (description)
+            try:
+                names = str(camper.get("parent_names") or "").strip()
+                ttk.Label(card, text=f"Parent: {names if names else 'N/A'}", style="Muted.TLabel").pack()
+            except Exception:
+                ttk.Label(card, text="Parent: N/A", style="Muted.TLabel").pack()
             # Parent/consent summary (if available)
             parent_flag = camper.get("parent_linked", None)
             consent_flag = camper.get("consent", None)
