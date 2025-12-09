@@ -37,15 +37,25 @@ from ui.theme import get_palette, tint
 
 
 def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callable[[], None]) -> tk.Frame:
-    scroll = ScrollFrame(root)
-    container = scroll.content
+    # Root container for fixed header + scrollable content
+    root_frame = ttk.Frame(root)
 
-    header = ttk.Frame(container)
+    # Fixed header bar (always visible; logout anchored to right)
+    header = ttk.Frame(root_frame)
     header.pack(fill=tk.X, padx=10, pady=8)
-
     display_name = str(user.get("username") or "Leader")
-    tk.Label(header, text=f"{display_name} Dashboard", font=("Helvetica", 16, "bold")).pack(side=tk.LEFT)
-    ttk.Button(header, text="Logout", command=logout_callback).pack(side=tk.RIGHT)
+    tk.Label(header, text=f"{display_name} Dashboard", font=("Helvetica", 16, "bold")).grid(row=0, column=0, sticky="w")
+    ttk.Frame(header).grid(row=0, column=1, sticky="ew")  # spacer
+    ttk.Button(header, text="Logout", command=logout_callback).grid(row=0, column=2, sticky="e")
+    try:
+        header.grid_columnconfigure(1, weight=1)
+    except Exception:
+        pass
+
+    # Scrollable content below header
+    scroll = ScrollFrame(root_frame)
+    scroll.pack(fill=tk.BOTH, expand=True)
+    container = scroll.content
 
     notebook = ttk.Notebook(container)
     notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
@@ -1523,5 +1533,5 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         current_user=user.get("username"),
     ).pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-    return scroll
+    return root_frame
 
