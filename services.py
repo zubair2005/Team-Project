@@ -625,7 +625,10 @@ def compute_leader_pay_report() -> List[Dict[str, Any]]:
     assignments["end_date"] = pd.to_datetime(assignments["end_date"], dayfirst=True, errors="coerce")
     # Drop any rows with invalid dates to avoid downstream crashes
     assignments = assignments.dropna(subset=["start_date", "end_date"])
-    assignments["days"] = (assignments["end_date"] - assignments["start_date"]).dt.days + 1
+    # Compute assignment days; ensure strictly non-negative for pay purposes
+    days_delta = (assignments["end_date"] - assignments["start_date"]).dt.days + 1
+    # If end < start, treat as absolute duration; clamp minimum at 0
+    assignments["days"] = days_delta.abs().clip(lower=0)
 
     daily_rate = float(get_daily_pay_rate() or "0")
 
@@ -635,13 +638,14 @@ def compute_leader_pay_report() -> List[Dict[str, Any]]:
         total = 0.0
         for _, row in group.iterrows():
             camp_record = df[df["id"] == row["camp_id"]].iloc[0]
-            pay = daily_rate * row["days"]
+            # Always compute non-negative pay
+            pay = daily_rate * max(0, int(row["days"]))
             total += pay
             per_camp.append(
                 {
                     "camp_id": int(row["camp_id"]),
                     "camp_name": camp_record["name"],
-                    "days": int(row["days"]),
+                    "days": max(0, int(row["days"])),
                     "pay": pay,
                 }
             )
