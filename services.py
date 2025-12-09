@@ -982,6 +982,58 @@ def list_camp_campers(camp_id: int) -> List[Dict[str, Any]]:
 # =========================
 # Parent / Consent services
 # =========================
+def _migrate_parent_campers_fix_users_fk() -> None:
+    """Fix legacy parent_campers referencing 'users_old' and unify parent column to 'parent_id'."""
+    with _dict_cursor(_connect()) as conn_ro:
+        # Check if table exists
+        tbl = conn_ro.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='parent_campers';"
+        ).fetchone()
+        if not tbl:
+            return
+        # Gather columns and foreign keys
+        cols = [r["name"] for r in conn_ro.execute("PRAGMA table_info(parent_campers);").fetchall()]
+        fks = conn_ro.execute("PRAGMA foreign_key_list(parent_campers);").fetchall()
+        fk_tables = [fk[2] if isinstance(fk, tuple) else fk["table"] for fk in fks] if fks else []
+    needs_fk_fix = any(t == "users_old" for t in fk_tables)
+    needs_col_fix = ("parent_user_id" in cols) and ("parent_id" not in cols)
+    if not (needs_fk_fix or needs_col_fix):
+        return
+    with _connect() as conn:
+        conn.execute("PRAGMA foreign_keys=OFF;")
+        conn.execute("BEGIN;")
+        try:
+            conn.execute("ALTER TABLE parent_campers RENAME TO parent_campers_old;")
+            conn.execute(
+                """
+                CREATE TABLE parent_campers (
+                    id INTEGER PRIMARY KEY,
+                    parent_id INTEGER NOT NULL,
+                    camper_id INTEGER NOT NULL,
+                    UNIQUE(parent_id, camper_id),
+                    FOREIGN KEY (parent_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (camper_id) REFERENCES campers(id) ON DELETE CASCADE
+                );
+                """
+            )
+            # Copy data from legacy columns
+            legacy_cols = [r[1] for r in conn.execute("PRAGMA table_info(parent_campers_old);").fetchall()]
+            if "parent_id" in legacy_cols:
+                conn.execute(
+                    "INSERT OR IGNORE INTO parent_campers(parent_id, camper_id) SELECT parent_id, camper_id FROM parent_campers_old;"
+                )
+            elif "parent_user_id" in legacy_cols:
+                conn.execute(
+                    "INSERT OR IGNORE INTO parent_campers(parent_id, camper_id) SELECT parent_user_id, camper_id FROM parent_campers_old;"
+                )
+            conn.execute("DROP TABLE parent_campers_old;")
+            conn.execute("COMMIT;")
+        except Exception:
+            conn.execute("ROLLBACK;")
+            raise
+        finally:
+            conn.execute("PRAGMA foreign_keys=ON;")
+
 def _parent_campers_parent_col() -> str:
     """Return the actual parent column name in parent_campers ('parent_id' or legacy 'parent_user_id')."""
     try:
@@ -998,6 +1050,7 @@ def _parent_campers_parent_col() -> str:
 def add_parent_camper(parent_id: int, camper_id: int) -> bool:
     """Link a parent user to a camper (idempotent)."""
     _ensure_parent_tables()
+    _migrate_parent_campers_fix_users_fk()
     try:
         col = _parent_campers_parent_col()
         with _connect() as conn:
@@ -1013,6 +1066,7 @@ def add_parent_camper(parent_id: int, camper_id: int) -> bool:
 def list_parent_campers(parent_id: int) -> List[Dict[str, Any]]:
     """Return campers linked to the given parent user."""
     _ensure_parent_tables()
+    _migrate_parent_campers_fix_users_fk()
     col = _parent_campers_parent_col()
     with _dict_cursor(_connect()) as conn:
         rows = conn.execute(
@@ -1047,6 +1101,7 @@ def list_camps_for_camper(camper_id: int) -> List[Dict[str, Any]]:
 def list_camps_for_parent(parent_id: int) -> List[Dict[str, Any]]:
     """List unique camps associated with any camper linked to a parent."""
     _ensure_parent_tables()
+    _migrate_parent_campers_fix_users_fk()
     col = _parent_campers_parent_col()
     with _dict_cursor(_connect()) as conn:
         rows = conn.execute(
