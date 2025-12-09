@@ -215,7 +215,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     role_menu = ttk.Combobox(
         form_frame,
         textvariable=role_var,
-        values=["leader", "coordinator"],
+        values=["leader", "coordinator", "parent"],
         state="readonly",
         width=15,
         style="Filled.TCombobox",
