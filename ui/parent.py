@@ -16,6 +16,7 @@ from services import (
     list_daily_reports_for_camper,
 )
 from ui.components import ScrollFrame
+import datetime as _dt
 
 
 # construct and return parent dashboard widget
@@ -40,7 +41,22 @@ def build_dashboard(root: tk.Misc, user: Dict[str, Any], on_logout: Callable[[],
 
     notebook = ttk.Notebook(container)
     _build_schedules_tab(notebook, user)
-    _build_consent_tab(notebook, user)
+    # Only show Consent tab if any linked camper is under 18
+    try:
+        campers = list_parent_campers(user["id"])
+    except Exception:
+        campers = []
+    def _is_under_18(dob_str: str) -> bool:
+        try:
+            dob = _dt.datetime.strptime(dob_str, "%Y-%m-%d").date()
+            today = _dt.date.today()
+            years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+            return years < 18
+        except Exception:
+            # If DOB invalid/missing, be conservative and hide consent for safety
+            return False
+    if any(_is_under_18(str(c.get("dob") or "")) for c in campers):
+        _build_consent_tab(notebook, user)
     _build_progress_tab(notebook, user)
     notebook.pack(fill=tk.BOTH, expand=True)
 
