@@ -318,6 +318,12 @@ def list_messages_lines(limit: int = 100) -> List[str]:
     return list(reversed(lines))
 
 
+def delete_all_messages() -> None:
+    """Delete all chat messages (admin use)."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM messages;")
+
+
 # -------------------------
 # Camp Management
 # -------------------------
@@ -752,6 +758,17 @@ def assign_campers_to_activity(activity_id: int, camper_ids: List[int]) -> None:
     with _connect() as conn:
         conn.executemany(
             "INSERT OR IGNORE INTO camper_activity(activity_id, camper_id) VALUES (?, ?);",
+            [(activity_id, camper_id) for camper_id in camper_ids],
+        )
+
+
+def remove_campers_from_activity(activity_id: int, camper_ids: List[int]) -> None:
+    """Unassign campers from an activity."""
+    if not camper_ids:
+        return
+    with _connect() as conn:
+        conn.executemany(
+            "DELETE FROM camper_activity WHERE activity_id = ? AND camper_id = ?;",
             [(activity_id, camper_id) for camper_id in camper_ids],
         )
 
@@ -1314,6 +1331,20 @@ def list_camps_for_parent(parent_id: int) -> List[Dict[str, Any]]:
             JOIN camps c ON c.id = cc.camp_id
             WHERE pc.parent_id = ?
             ORDER BY c.start_date, c.name;
+            """,
+            (parent_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def list_parent_consents(parent_id: int) -> List[Dict[str, Any]]:
+    """List all consent rows for a parent (any camper/camp)."""
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT parent_id, camper_id, camp_id, consent, notes, updated_at
+            FROM parent_consents
+            WHERE parent_id = ?;
             """,
             (parent_id,),
         ).fetchall()

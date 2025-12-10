@@ -14,6 +14,7 @@ from services import (
     update_user_username,
     count_roles_total,
     count_roles_enabled,
+    delete_all_messages,
     # Parent linking + data
     add_parent_camper,
     list_parent_campers,
@@ -424,12 +425,31 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     def post_message_wrapper(content: str) -> None:
         post_message(user.get("id"), content)
 
-    MessageBoard(
+    chat_frame = ttk.Frame(tab_chat)
+    chat_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+    def clear_chat() -> None:
+        if not messagebox.askyesno("Clear chat", "Delete ALL messages? This cannot be undone."):
+            return
+        delete_all_messages()
+        chat_board.refresh()
+
+    # Chat board
+    chat_board = MessageBoard(
         tab_chat,
         post_callback=post_message_wrapper,
         fetch_callback=lambda: list_messages_lines(),
         current_user=user.get("username"),
-    ).pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    )
+    chat_board.pack(fill=tk.BOTH, expand=True, padx=10, pady=(10, 4))
+
+    # Admin-only clear button
+    ttk.Button(
+        tab_chat,
+        text="Clear chat (admin)",
+        command=clear_chat,
+        style="Danger.TButton" if "Danger.TButton" in tab_chat.master.tk.call("ttk::style", "map") else "TButton",
+    ).pack(anchor=tk.E, padx=10, pady=(0, 10))
 
     return root_frame
 

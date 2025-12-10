@@ -12,6 +12,7 @@ from services import (
     list_camps_for_parent,
     submit_consent_form,
     get_consent_form,
+    list_parent_consents,
     submit_feedback,
     list_daily_reports_for_camper,
 )
@@ -77,7 +78,7 @@ def _build_schedules_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
         ttk.Label(tab, text="No campers linked to your account.").pack(pady=10)
         return
 
-    camper_names = [f"{c['first_name']} {c['last_name']} (ID {c['id']})" for c in campers]
+    camper_names = [f"{c['first_name']} {c['last_name']}" for c in campers]
     selected_camper = tk.StringVar(value=camper_names[0])
 
     # Main container
@@ -136,6 +137,8 @@ def _build_consent_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
 
     campers = list_parent_campers(user["id"])
     camps = list_camps_for_parent(user["id"])
+    consents = list_parent_consents(user["id"])
+    consent_lookup = {(c["camper_id"], c["camp_id"]): c for c in consents}
 
     if not campers or not camps:
         ttk.Label(tab, text="No camps or campers associated with your account.").pack(pady=10)
@@ -176,7 +179,7 @@ def _build_consent_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
         camper_camps = list_camps_for_camper(camper_id)
         for camp in camper_camps:
             camp_id = camp["id"]
-            existing = get_consent_form(user["id"], camper_id, camp_id)
+            existing = consent_lookup.get((camper_id, camp_id))
             consent_var = tk.IntVar(value=existing["consent"] if existing else 0)
             notes_var = tk.StringVar(value=(existing.get("notes", "") if existing else ""))
 
@@ -237,41 +240,40 @@ def _build_consent_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
 
 # creates the progress and feedback tab
 def _build_progress_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
-    tab = ttk.Frame(notebook)
-    notebook.add(tab, text="Progress & Feedback")
+    tab_reports = ttk.Frame(notebook)
+    notebook.add(tab_reports, text="Leader Reports")
+    tab_feedback = ttk.Frame(notebook)
+    notebook.add(tab_feedback, text="Feedback")
 
     campers = list_parent_campers(user["id"])
     if not campers:
-        ttk.Label(tab, text="No campers linked to your account.").pack(pady=10)
+        ttk.Label(tab_reports, text="No campers linked to your account.").pack(pady=10)
+        ttk.Label(tab_feedback, text="No campers linked to your account.").pack(pady=10)
         return
 
-    camper_names = [f"{c['first_name']} {c['last_name']} (ID {c['id']})" for c in campers]
+    camper_names = [f"{c['first_name']} {c['last_name']}" for c in campers]
     selected_camper = tk.StringVar(value=camper_names[0])
-    top_row = ttk.Frame(tab)
-    ttk.Label(top_row, text="Select Camper:").pack(side=tk.LEFT)
-    camper_menu = ttk.Combobox(top_row, textvariable=selected_camper, values=camper_names, state="readonly", width=38)
-    camper_menu.bind("<<ComboboxSelected>>", lambda _e: refresh_reports())
-    camper_menu.pack(side=tk.LEFT, padx=(5, 0))
-    top_row.pack(anchor=tk.W, pady=(0, 5))
 
-    reports_frame = ttk.Frame(tab)
+    # --- Reports tab ---
+    top_row_reports = ttk.Frame(tab_reports)
+    ttk.Label(top_row_reports, text="Select Camper:").pack(side=tk.LEFT)
+    camper_menu_reports = ttk.Combobox(
+        top_row_reports,
+        textvariable=selected_camper,
+        values=camper_names,
+        state="readonly",
+        width=38,
+    )
+    camper_menu_reports.pack(side=tk.LEFT, padx=(5, 0))
+    top_row_reports.pack(anchor=tk.W, pady=(0, 5))
+
+    reports_frame = ttk.Frame(tab_reports)
     reports_tree = ttk.Treeview(reports_frame, columns=("Date", "Leader", "Notes"), show="headings", height=10)
     for col, width in [("Date", 100), ("Leader", 120), ("Notes", 400)]:
         reports_tree.heading(col, text=col)
         reports_tree.column(col, width=width)
     reports_tree.pack(fill=tk.BOTH, expand=True)
-    reports_frame.pack(fill=tk.BOTH, expand=True)
-
-    feedback_frame = ttk.Frame(tab)
-    ttk.Label(feedback_frame, text="Enter Feedback:").pack(anchor=tk.W)
-    feedback_text = tk.Text(feedback_frame, height=4)
-    feedback_text.pack(fill=tk.BOTH, expand=True)
-    ttk.Button(
-        feedback_frame,
-        text="Submit Feedback",
-        command=lambda: _submit_feedback_action(),
-    ).pack(pady=(5, 0), anchor=tk.E)
-    feedback_frame.pack(fill=tk.BOTH, expand=False, pady=(5, 0))
+    reports_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
     def refresh_reports(*_args: Any) -> None:
         for row in reports_tree.get_children():
@@ -285,6 +287,27 @@ def _build_progress_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
                 tk.END,
                 values=(r.get("date", ""), r.get("leader", ""), r.get("notes", "")),
             )
+
+    camper_menu_reports.bind("<<ComboboxSelected>>", lambda _e: refresh_reports())
+
+    # --- Feedback tab (kept separate) ---
+    top_row_feedback = ttk.Frame(tab_feedback)
+    ttk.Label(top_row_feedback, text="Select Camper:").pack(side=tk.LEFT)
+    camper_menu_feedback = ttk.Combobox(
+        top_row_feedback,
+        textvariable=selected_camper,
+        values=camper_names,
+        state="readonly",
+        width=38,
+    )
+    camper_menu_feedback.pack(side=tk.LEFT, padx=(5, 0))
+    top_row_feedback.pack(anchor=tk.W, pady=(0, 5))
+
+    feedback_frame = ttk.Frame(tab_feedback)
+    ttk.Label(feedback_frame, text="Enter Feedback:").pack(anchor=tk.W)
+    feedback_text = tk.Text(feedback_frame, height=4)
+    feedback_text.pack(fill=tk.BOTH, expand=True)
+    feedback_frame.pack(fill=tk.BOTH, expand=False, padx=4, pady=(5, 0))
 
     def _submit_feedback_action() -> None:
         text = feedback_text.get("1.0", tk.END).strip()
@@ -306,6 +329,12 @@ def _build_progress_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
         )
         feedback_text.delete("1.0", tk.END)
         messagebox.showinfo("Feedback submitted", "Your feedback has been recorded.")
+
+    ttk.Button(
+        tab_feedback,
+        text="Submit Feedback",
+        command=_submit_feedback_action,
+    ).pack(pady=(5, 10), anchor=tk.E, padx=4)
 
     selected_camper.trace_add("write", lambda *_: refresh_reports())
 
