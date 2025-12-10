@@ -57,21 +57,26 @@ from ui.theme import get_palette, tint
 def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callable[[], None]) -> tk.Frame:
     # Use a wrapper frame with grid for proper resize
     root_frame = ttk.Frame(root)
-    root_frame.grid_rowconfigure(0, weight=1)
+    # Row 0: fixed header, Row 1: scrollable content
+    root_frame.grid_rowconfigure(1, weight=1)
     root_frame.grid_columnconfigure(0, weight=1)
-    
-    scroll = ScrollFrame(root_frame, enable_horizontal=True)
-    scroll.grid(row=0, column=0, sticky="nsew")
-    container = scroll.content
 
-    header = ttk.Frame(container)
-    header.pack(fill=tk.X, padx=10, pady=8)
+    # Fixed header bar – always visible, anchored to window width
+    header = ttk.Frame(root_frame)
+    header.grid(row=0, column=0, sticky="ew", padx=10, pady=8)
+    header.grid_columnconfigure(1, weight=1)  # spacer column expands
 
     display_name = str(user.get("username") or "Leader")
-    tk.Label(header, text=f"{display_name} Dashboard", font=("Helvetica", 16, "bold")).pack(side=tk.LEFT)
-    # Spacer to push logout button to right
-    ttk.Frame(header).pack(side=tk.LEFT, fill=tk.X, expand=True)
-    ttk.Button(header, text="Logout", command=logout_callback).pack(side=tk.RIGHT)
+    tk.Label(header, text=f"{display_name} Dashboard", font=("Helvetica", 16, "bold")).grid(
+        row=0, column=0, sticky="w"
+    )
+    ttk.Frame(header).grid(row=0, column=1, sticky="ew")  # spacer
+    ttk.Button(header, text="Logout", command=logout_callback).grid(row=0, column=2, sticky="e")
+
+    # Scrollable content below header (with horizontal scroll)
+    scroll = ScrollFrame(root_frame, enable_horizontal=True)
+    scroll.grid(row=1, column=0, sticky="nsew")
+    container = scroll.content
 
     notebook = ttk.Notebook(container)
     notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
@@ -148,28 +153,18 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     assignments_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
 
     columns = ("Camp", "County", "City", "Start", "End")
-    assign_container = ttk.Frame(assignments_frame)
-    assign_container.pack(fill=tk.BOTH, expand=True)
-    assignments_table = ttk.Treeview(assign_container, columns=columns, show="headings", height=6)
-    assign_scroll = ttk.Scrollbar(assign_container, orient="vertical", command=assignments_table.yview)
-    assign_hscroll = ttk.Scrollbar(assign_container, orient="horizontal", command=assignments_table.xview)
-    assignments_table.configure(yscrollcommand=assign_scroll.set, xscrollcommand=assign_hscroll.set)
-    for col in columns:
-        assignments_table.heading(col, text=col)
-        assignments_table.column(col, width=140, minwidth=120, stretch=True)
-    assignments_table.heading("Camp", anchor=tk.W)
-    assignments_table.column("Camp", width=200, minwidth=160, stretch=False, anchor=tk.W)
-    assignments_table.heading("County", anchor=tk.W)
-    assignments_table.column("County", width=160, minwidth=140, stretch=False, anchor=tk.W)
-    assignments_table.heading("City", anchor=tk.CENTER)
-    assignments_table.column("City", width=120, minwidth=100, stretch=False, anchor=tk.CENTER)
-    assignments_table.heading("Start", anchor=tk.CENTER)
-    assignments_table.column("Start", width=120, minwidth=100, stretch=False, anchor=tk.CENTER)
-    assignments_table.heading("End", anchor=tk.CENTER)
-    assignments_table.column("End", width=120, minwidth=100, stretch=False, anchor=tk.CENTER)
-    assignments_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
-    assign_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
-    assign_hscroll.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 4))
+    assignments_table = ttk.Treeview(assignments_frame, columns=columns, show="headings")
+    assignments_table.pack(fill=tk.BOTH, expand=True, pady=4)
+    assignments_table.heading("Camp", text="Camp", anchor=tk.W)
+    assignments_table.column("Camp", width=200, minwidth=160, stretch=True, anchor=tk.W)
+    assignments_table.heading("County", text="County", anchor=tk.W)
+    assignments_table.column("County", width=160, minwidth=130, stretch=True, anchor=tk.W)
+    assignments_table.heading("City", text="City", anchor=tk.CENTER)
+    assignments_table.column("City", width=120, minwidth=100, stretch=True, anchor=tk.CENTER)
+    assignments_table.heading("Start", text="Start", anchor=tk.CENTER)
+    assignments_table.column("Start", width=120, minwidth=100, stretch=True, anchor=tk.CENTER)
+    assignments_table.heading("End", text="End", anchor=tk.CENTER)
+    assignments_table.column("End", width=120, minwidth=100, stretch=True, anchor=tk.CENTER)
 
     assignments_empty_label = ttk.Label(assignments_frame, text="No assignments yet.", style="Muted.TLabel")
     assignments_empty_label.pack_forget()
@@ -202,28 +197,18 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         refresh_pay_summary()
 
     tk.Label(assignments_frame, text="Available camps (no conflicts)").pack(pady=(10, 4))
-    avail_container = ttk.Frame(assignments_frame)
-    avail_container.pack(fill=tk.BOTH, expand=True)
-    available_table = ttk.Treeview(avail_container, columns=columns, show="headings", height=5)
-    avail_scroll = ttk.Scrollbar(avail_container, orient="vertical", command=available_table.yview)
-    avail_hscroll = ttk.Scrollbar(avail_container, orient="horizontal", command=available_table.xview)
-    available_table.configure(yscrollcommand=avail_scroll.set, xscrollcommand=avail_hscroll.set)
-    for col in columns:
-        available_table.heading(col, text=col)
-        available_table.column(col, width=140, minwidth=120, stretch=True)
-    available_table.heading("Camp", anchor=tk.W)
-    available_table.column("Camp", width=200, minwidth=160, stretch=False, anchor=tk.W)
-    available_table.heading("County", anchor=tk.W)
-    available_table.column("County", width=160, minwidth=140, stretch=False, anchor=tk.W)
-    available_table.heading("City", anchor=tk.CENTER)
-    available_table.column("City", width=120, minwidth=100, stretch=False, anchor=tk.CENTER)
-    available_table.heading("Start", anchor=tk.CENTER)
-    available_table.column("Start", width=120, minwidth=100, stretch=False, anchor=tk.CENTER)
-    available_table.heading("End", anchor=tk.CENTER)
-    available_table.column("End", width=120, minwidth=100, stretch=False, anchor=tk.CENTER)
-    available_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
-    avail_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
-    avail_hscroll.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 4))
+    available_table = ttk.Treeview(assignments_frame, columns=columns, show="headings")
+    available_table.pack(fill=tk.BOTH, expand=True, pady=4)
+    available_table.heading("Camp", text="Camp", anchor=tk.W)
+    available_table.column("Camp", width=200, minwidth=160, stretch=True, anchor=tk.W)
+    available_table.heading("County", text="County", anchor=tk.W)
+    available_table.column("County", width=160, minwidth=130, stretch=True, anchor=tk.W)
+    available_table.heading("City", text="City", anchor=tk.CENTER)
+    available_table.column("City", width=120, minwidth=100, stretch=True, anchor=tk.CENTER)
+    available_table.heading("Start", text="Start", anchor=tk.CENTER)
+    available_table.column("Start", width=120, minwidth=100, stretch=True, anchor=tk.CENTER)
+    available_table.heading("End", text="End", anchor=tk.CENTER)
+    available_table.column("End", width=120, minwidth=100, stretch=True, anchor=tk.CENTER)
 
     available_empty_label = ttk.Label(assignments_frame, text="No available camps.", style="Muted.TLabel")
     available_empty_label.pack_forget()
@@ -505,7 +490,19 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             _set_active_search("DOB (YYYY-MM-DD)", raw)
 
         elif scope == "Phone (+44 XXXX XXXXXX)":
-            # Allow substring search; no strict validation required
+            # Validate phone number format: +44 followed by exactly 10 digits (spaces allowed)
+            import re
+            # Remove all spaces to check digit count
+            digits_only = re.sub(r'\s', '', raw)
+            # Must start with +44 and have exactly 10 more digits
+            if not re.fullmatch(r'\+44\d{10}', digits_only):
+                messagebox.showerror("Search", "Invalid phone number. It should be in the format +44 XXXX XXXXXX.")
+                try:
+                    search_entry.focus_set()
+                    search_entry.selection_range(0, tk.END)
+                except Exception:
+                    pass
+                return
             _set_active_search("Phone (+44 XXXX XXXXXX)", raw)
         elif scope == "Food units/day":
             try:
@@ -1202,21 +1199,9 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     activities_frame = tk.LabelFrame(tab_activities, text="Activities for selected camp", padx=10, pady=10)
     activities_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
 
-    # Activities table with vertical scrollbar
-    activities_container = ttk.Frame(activities_frame)
-    activities_container.pack(fill=tk.BOTH, expand=True)
-    # Configure grid for proper scrollbar placement
-    activities_container.grid_rowconfigure(0, weight=1)
-    activities_container.grid_columnconfigure(0, weight=1)
-    
-    activities_table = Table(activities_container, columns=["Name", "Date", "No. of Participants"])
-    activities_scroll = ttk.Scrollbar(activities_container, orient="vertical", command=activities_table.yview)
-    activities_hscroll = ttk.Scrollbar(activities_container, orient="horizontal", command=activities_table.xview)
-    activities_table.configure(yscrollcommand=activities_scroll.set, xscrollcommand=activities_hscroll.set)
-    # Grid layout - scrollbars inside table area
-    activities_table.grid(row=0, column=0, sticky="nsew")
-    activities_scroll.grid(row=0, column=1, sticky="ns")
-    activities_hscroll.grid(row=1, column=0, sticky="ew")
+    # Activities table - page-level scrolling only
+    activities_table = Table(activities_frame, columns=["Name", "Date", "No. of Participants"])
+    activities_table.pack(fill=tk.BOTH, expand=True)
 
     activities_empty_label = ttk.Label(activities_frame, text="No activities for the selected camp.", style="Muted.TLabel")
     activities_empty_label.pack_forget()
@@ -1671,30 +1656,13 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     reports_frame = tk.LabelFrame(tab_reports, text="Daily reports for selected camp", padx=10, pady=10)
     reports_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
 
-    # Reports table with vertical scrollbar
-    # Reports table with proper scrollbars
-    reports_container = ttk.Frame(reports_frame)
-    reports_container.pack(fill=tk.BOTH, expand=True)
-    reports_table = ttk.Treeview(reports_container, columns=["Date", "Notes"], show="headings",
-                                 height=8)  # Added height=8
-    # Configure grid for proper scrollbar placement
-    reports_container.grid_rowconfigure(0, weight=1)
-    reports_container.grid_columnconfigure(0, weight=1)
-    
-    reports_scroll = ttk.Scrollbar(reports_container, orient="vertical", command=reports_table.yview)
-    reports_hscroll = ttk.Scrollbar(reports_container, orient="horizontal", command=reports_table.xview)
-    reports_table.configure(yscrollcommand=reports_scroll.set, xscrollcommand=reports_hscroll.set)
-
-    # Set up headings
+    # Reports table - page-level scrolling only
+    reports_table = ttk.Treeview(reports_frame, columns=["Date", "Notes"], show="headings")
+    reports_table.pack(fill=tk.BOTH, expand=True)
     reports_table.heading("Date", text="Date")
     reports_table.heading("Notes", text="Notes")
-    reports_table.column("Date", width=120)
-    reports_table.column("Notes", width=400)
-
-    # Grid layout - scrollbars inside table area
-    reports_table.grid(row=0, column=0, sticky="nsew")
-    reports_scroll.grid(row=0, column=1, sticky="ns")
-    reports_hscroll.grid(row=1, column=0, sticky="ew")
+    reports_table.column("Date", width=120, minwidth=100, stretch=True)
+    reports_table.column("Notes", width=400, minwidth=300, stretch=True)
 
     reports_empty_label = ttk.Label(reports_frame, text="No reports for the selected camp.", style="Muted.TLabel")
     reports_empty_label.pack_forget()
@@ -2010,31 +1978,19 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     stats_container = ttk.Frame(tab_stats)
     stats_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
 
-    # Stats table with vertical scrollbar
+    # Stats table - page-level scrolling only
     stats_table_columns = ["Camp", "Area", "Days", "Campers", "Attending", "Participation %", "Activities", "Food/Day", "Total Food", "Reports"]
-    stats_table_container = ttk.Frame(stats_container)
-    stats_table_container.pack(fill=tk.BOTH, expand=True)
-    # Configure grid for proper scrollbar placement
-    stats_table_container.grid_rowconfigure(0, weight=1)
-    stats_table_container.grid_columnconfigure(0, weight=1)
+    stats_table = Table(stats_container, columns=stats_table_columns)
+    stats_table.pack(fill=tk.BOTH, expand=True)
     
-    stats_table = Table(stats_table_container, columns=stats_table_columns)
-    stats_scroll = ttk.Scrollbar(stats_table_container, orient="vertical", command=stats_table.yview)
-    stats_hscroll = ttk.Scrollbar(stats_table_container, orient="horizontal", command=stats_table.xview)
-    stats_table.configure(yscrollcommand=stats_scroll.set, xscrollcommand=stats_hscroll.set)
-    # Grid layout - scrollbars inside table area
-    stats_table.grid(row=0, column=0, sticky="nsew")
-    stats_scroll.grid(row=0, column=1, sticky="ns")
-    stats_hscroll.grid(row=1, column=0, sticky="ew")
-
     # Align headers/cells
     stats_table.heading("Camp", text="Camp", anchor=tk.W)
-    stats_table.column("Camp", anchor=tk.W, width=160)
+    stats_table.column("Camp", anchor=tk.W, width=160, minwidth=130, stretch=True)
     stats_table.heading("Area", text="Area", anchor=tk.W)
-    stats_table.column("Area", anchor=tk.W, width=120)
+    stats_table.column("Area", anchor=tk.W, width=120, minwidth=100, stretch=True)
     for col in ["Days", "Campers", "Attending", "Participation %", "Activities", "Food/Day", "Total Food", "Reports"]:
         stats_table.heading(col, text=col, anchor=tk.CENTER)
-        stats_table.column(col, anchor=tk.CENTER)
+        stats_table.column(col, anchor=tk.CENTER, width=120, minwidth=100, stretch=True)
 
     stats_empty_label = ttk.Label(stats_container, text="No statistics to display.", style="Muted.TLabel")
     stats_empty_label.pack_forget()

@@ -35,24 +35,27 @@ def _is_under_18(dob_str: str) -> bool:
 def build_dashboard(root: tk.Misc, user: Dict[str, Any], on_logout: Callable[[], None]) -> tk.Widget:
     # Main container that will fill the window - use grid for better resize behavior
     root_frame = ttk.Frame(root)
-    root_frame.grid_rowconfigure(1, weight=1)  # Notebook row expands
+    root_frame.grid_rowconfigure(1, weight=1)  # Content row expands
     root_frame.grid_columnconfigure(0, weight=1)  # Column expands
 
-    # Header (fixed height)
+    # Fixed header bar (always stays in view and anchored to the right)
     header = ttk.Frame(root_frame)
-    header.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+    header.grid(row=0, column=0, sticky="ew", padx=10, pady=8)
+    header.grid_columnconfigure(1, weight=1)  # spacer column expands
 
     ttk.Label(header, text=f"Parent Dashboard - {user.get('username')}",
-              font=("Helvetica", 14, "bold")).pack(side=tk.LEFT)
+              font=("Helvetica", 14, "bold")).grid(row=0, column=0, sticky="w")
+    ttk.Frame(header).grid(row=0, column=1, sticky="ew")  # spacer
+    ttk.Button(header, text="Logout", command=on_logout).grid(row=0, column=2, sticky="e")
 
-    # Spacer to push logout button to right
-    ttk.Frame(header).pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-    ttk.Button(header, text="Logout", command=on_logout).pack(side=tk.RIGHT)
+    # Scrollable content below header (with horizontal scroll)
+    scroll = ScrollFrame(root_frame, enable_horizontal=True)
+    scroll.grid(row=1, column=0, sticky="nsew")
+    container = scroll.content
 
     # Notebook that fills remaining space
-    notebook = ttk.Notebook(root_frame)
-    notebook.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+    notebook = ttk.Notebook(container)
+    notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
 
     # Build tabs
     _build_schedules_tab(notebook, user)
@@ -94,28 +97,14 @@ def _build_schedules_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
     camper_menu = ttk.Combobox(top, textvariable=selected_camper, values=camper_names, state="readonly", width=40)
     camper_menu.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-    # Treeview with scrollbars - use grid for proper resizing
-    tree_container = ttk.Frame(container)
-    tree_container.pack(fill=tk.BOTH, expand=True)
-    tree_container.grid_rowconfigure(0, weight=1)
-    tree_container.grid_columnconfigure(0, weight=1)
-
+    # Camps table - page-level scrolling only
     columns = ("Name", "Location", "Start Date", "End Date", "Type")
-    camp_tree = ttk.Treeview(tree_container, columns=columns, show="headings")
-
-    # Scrollbars
-    v_scroll = ttk.Scrollbar(tree_container, orient="vertical", command=camp_tree.yview)
-    h_scroll = ttk.Scrollbar(tree_container, orient="horizontal", command=camp_tree.xview)
-    camp_tree.configure(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set)
-
-    # Grid layout for proper resizing
-    camp_tree.grid(row=0, column=0, sticky="nsew")
-    v_scroll.grid(row=0, column=1, sticky="ns")
-    h_scroll.grid(row=1, column=0, sticky="ew")
+    camp_tree = ttk.Treeview(container, columns=columns, show="headings")
+    camp_tree.pack(fill=tk.BOTH, expand=True)
 
     for col in columns:
         camp_tree.heading(col, text=col)
-        camp_tree.column(col, width=120, minwidth=100)
+        camp_tree.column(col, width=120, minwidth=100, stretch=True)
 
     def update_camp_list(*_args: Any) -> None:
         for row in camp_tree.get_children():
@@ -279,25 +268,13 @@ def _build_leader_reports_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> N
     ttk.Label(container, text="Daily reports submitted by leaders for your camper's camps:",
               style="Muted.TLabel").pack(anchor=tk.W, pady=(0, 5))
 
-    # Reports treeview with scrollbars - use grid for proper resizing
-    tree_container = ttk.Frame(container)
-    tree_container.pack(fill=tk.BOTH, expand=True)
-    tree_container.grid_rowconfigure(0, weight=1)
-    tree_container.grid_columnconfigure(0, weight=1)
-    
-    reports_tree = ttk.Treeview(tree_container, columns=("Date", "Leader", "Notes"), show="headings")
-    v_scroll = ttk.Scrollbar(tree_container, orient="vertical", command=reports_tree.yview)
-    h_scroll = ttk.Scrollbar(tree_container, orient="horizontal", command=reports_tree.xview)
-    reports_tree.configure(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set)
+    # Reports table - page-level scrolling only
+    reports_tree = ttk.Treeview(container, columns=("Date", "Leader", "Notes"), show="headings")
+    reports_tree.pack(fill=tk.BOTH, expand=True)
     
     for col, width in [("Date", 100), ("Leader", 120), ("Notes", 500)]:
         reports_tree.heading(col, text=col)
-        reports_tree.column(col, width=width, minwidth=80)
-    
-    # Grid layout for proper resizing
-    reports_tree.grid(row=0, column=0, sticky="nsew")
-    v_scroll.grid(row=0, column=1, sticky="ns")
-    h_scroll.grid(row=1, column=0, sticky="ew")
+        reports_tree.column(col, width=width, minwidth=80, stretch=True)
 
     def refresh_reports(*_args: Any) -> None:
         for row in reports_tree.get_children():

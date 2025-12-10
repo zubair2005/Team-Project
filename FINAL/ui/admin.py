@@ -237,28 +237,16 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     ttk.Button(search_row, text="Search", command=do_search).pack(side=tk.LEFT, padx=4)
     ttk.Button(search_row, text="Clear", command=clear_search).pack(side=tk.LEFT)
 
-    # Users table container with vertical + horizontal scrollbars
-    table_container = ttk.Frame(manage_frame)
-    table_container.pack(fill=tk.BOTH, expand=True)
-    # Configure grid for proper scrollbar placement
-    table_container.grid_rowconfigure(0, weight=1)
-    table_container.grid_columnconfigure(0, weight=1)
-    
-    table = ttk.Treeview(table_container, columns=("Username", "Role", "Enabled"), show="headings", height=12)
-    table_scroll = ttk.Scrollbar(table_container, orient="vertical", command=table.yview)
-    table_hscroll = ttk.Scrollbar(table_container, orient="horizontal", command=table.xview)
-    table.configure(yscrollcommand=table_scroll.set, xscrollcommand=table_hscroll.set)
+    # Users table - no individual scrollbars, page-level scrolling only
+    table = ttk.Treeview(manage_frame, columns=("Username", "Role", "Enabled"), show="headings")
+    table.pack(fill=tk.BOTH, expand=True)
     table.heading("Username", text="Username", anchor=tk.W)
     table.heading("Role", text="Role", anchor=tk.CENTER)
     table.heading("Enabled", text="Enabled", anchor=tk.CENTER)
-    # Fix column widths and disable stretching to avoid overlap; use horizontal scroll for overflow
-    table.column("Username", width=220, minwidth=160, stretch=True, anchor=tk.W)
-    table.column("Role", width=160, minwidth=120, stretch=True, anchor=tk.CENTER)
-    table.column("Enabled", width=120, minwidth=80, stretch=True, anchor=tk.CENTER)
-    # Grid layout - scrollbars inside table area
-    table.grid(row=0, column=0, sticky="nsew")
-    table_scroll.grid(row=0, column=1, sticky="ns")
-    table_hscroll.grid(row=1, column=0, sticky="ew")
+    # Columns stretch to fill available space
+    table.column("Username", width=220, minwidth=180, stretch=True, anchor=tk.W)
+    table.column("Role", width=160, minwidth=130, stretch=True, anchor=tk.CENTER)
+    table.column("Enabled", width=120, minwidth=100, stretch=True, anchor=tk.CENTER)
 
     # Empty state label (hidden unless no users)
     empty_label = ttk.Label(manage_frame, text="No users to display.", style="Muted.TLabel")

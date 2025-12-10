@@ -201,20 +201,25 @@ UK_COUNTIES_CITIES = {
 def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callable[[], None]) -> tk.Frame:
     # Use a wrapper frame with grid for proper resize
     root_frame = ttk.Frame(root)
-    root_frame.grid_rowconfigure(0, weight=1)
+    # Row 0: fixed header, Row 1: scrollable content
+    root_frame.grid_rowconfigure(1, weight=1)
     root_frame.grid_columnconfigure(0, weight=1)
-    
+
+    # Fixed header bar – always visible, anchored to window width
+    header = ttk.Frame(root_frame)
+    header.grid(row=0, column=0, sticky="ew", padx=10, pady=8)
+    header.grid_columnconfigure(1, weight=1)  # spacer column expands
+
+    tk.Label(header, text="Coordinator Dashboard", font=("Helvetica", 16, "bold")).grid(
+        row=0, column=0, sticky="w"
+    )
+    ttk.Frame(header).grid(row=0, column=1, sticky="ew")  # spacer
+    ttk.Button(header, text="Logout", command=logout_callback).grid(row=0, column=2, sticky="e")
+
+    # Scrollable content below header (with horizontal scroll)
     scroll = ScrollFrame(root_frame, enable_horizontal=True)
-    scroll.grid(row=0, column=0, sticky="nsew")
+    scroll.grid(row=1, column=0, sticky="nsew")
     container = scroll.content
-
-    header = ttk.Frame(container)
-    header.pack(fill=tk.X, padx=10, pady=8)
-
-    tk.Label(header, text="Coordinator Dashboard", font=("Helvetica", 16, "bold")).pack(side=tk.LEFT)
-    # Spacer to push logout button to right
-    ttk.Frame(header).pack(side=tk.LEFT, fill=tk.X, expand=True)
-    ttk.Button(header, text="Logout", command=logout_callback).pack(side=tk.RIGHT)
 
     notebook = ttk.Notebook(container)
     notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
@@ -274,47 +279,32 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         "Top-up Δ",
         "Effective Daily",
     )
-    # Table container with vertical scrollbar
-    table_container = ttk.Frame(camps_frame)
-    table_container.pack(fill=tk.BOTH, expand=True)
-    # Configure grid for proper scrollbar placement
-    table_container.grid_rowconfigure(0, weight=1)
-    table_container.grid_columnconfigure(0, weight=1)
-    
-    camps_table = ttk.Treeview(table_container, columns=columns, show="headings", height=10)
-    camps_scroll = ttk.Scrollbar(table_container, orient="vertical", command=camps_table.yview)
-    camps_hscroll = ttk.Scrollbar(table_container, orient="horizontal", command=camps_table.xview)
-    camps_table.configure(yscrollcommand=camps_scroll.set, xscrollcommand=camps_hscroll.set)
-    for col in columns:
-        camps_table.heading(col, text=col)
-        camps_table.column(col, width=100)
-    # Header and cell alignment for readability
-    camps_table.heading("Name", anchor=tk.W)
-    camps_table.column("Name", width=140, anchor=tk.W)
-    camps_table.heading("County", anchor=tk.W)
-    camps_table.column("County", width=120, anchor=tk.W)
-    camps_table.heading("City", anchor=tk.CENTER)
-    camps_table.column("City", anchor=tk.CENTER)
-    camps_table.heading("Type", anchor=tk.CENTER)
-    camps_table.column("Type", anchor=tk.CENTER)
-    camps_table.heading("Leaders", anchor=tk.CENTER)
-    camps_table.column("Leaders", width=120, anchor=tk.CENTER)
-    camps_table.heading("Start", anchor=tk.CENTER)
-    camps_table.column("Start", width=90, anchor=tk.CENTER)
-    camps_table.heading("End", anchor=tk.CENTER)
-    camps_table.column("End", width=90, anchor=tk.CENTER)
-    camps_table.heading("Daily Food", anchor=tk.CENTER)
-    camps_table.column("Daily Food", anchor=tk.CENTER)
-    camps_table.heading("Default Food/Person", anchor=tk.CENTER)
-    camps_table.column("Default Food/Person", anchor=tk.CENTER)
-    camps_table.heading("Top-up Δ", anchor=tk.CENTER)
-    camps_table.column("Top-up Δ", anchor=tk.CENTER)
-    camps_table.heading("Effective Daily", anchor=tk.CENTER)
-    camps_table.column("Effective Daily", anchor=tk.CENTER)
-    # Grid layout - scrollbars inside table area
-    camps_table.grid(row=0, column=0, sticky="nsew")
-    camps_scroll.grid(row=0, column=1, sticky="ns")
-    camps_hscroll.grid(row=1, column=0, sticky="ew")
+    # Camps table - page-level scrolling only
+    camps_table = ttk.Treeview(camps_frame, columns=columns, show="headings")
+    camps_table.pack(fill=tk.BOTH, expand=True)
+    # Header and cell alignment
+    camps_table.heading("Name", text="Name", anchor=tk.W)
+    camps_table.column("Name", width=140, minwidth=120, stretch=True, anchor=tk.W)
+    camps_table.heading("County", text="County", anchor=tk.W)
+    camps_table.column("County", width=120, minwidth=100, stretch=True, anchor=tk.W)
+    camps_table.heading("City", text="City", anchor=tk.CENTER)
+    camps_table.column("City", width=100, minwidth=80, stretch=True, anchor=tk.CENTER)
+    camps_table.heading("Type", text="Type", anchor=tk.CENTER)
+    camps_table.column("Type", width=100, minwidth=80, stretch=True, anchor=tk.CENTER)
+    camps_table.heading("Leaders", text="Leaders", anchor=tk.CENTER)
+    camps_table.column("Leaders", width=120, minwidth=100, stretch=True, anchor=tk.CENTER)
+    camps_table.heading("Start", text="Start", anchor=tk.CENTER)
+    camps_table.column("Start", width=90, minwidth=80, stretch=True, anchor=tk.CENTER)
+    camps_table.heading("End", text="End", anchor=tk.CENTER)
+    camps_table.column("End", width=90, minwidth=80, stretch=True, anchor=tk.CENTER)
+    camps_table.heading("Daily Food", text="Daily Food", anchor=tk.CENTER)
+    camps_table.column("Daily Food", width=100, minwidth=80, stretch=True, anchor=tk.CENTER)
+    camps_table.heading("Default Food/Person", text="Default Food/Person", anchor=tk.CENTER)
+    camps_table.column("Default Food/Person", width=150, minwidth=120, stretch=True, anchor=tk.CENTER)
+    camps_table.heading("Top-up Δ", text="Top-up Δ", anchor=tk.CENTER)
+    camps_table.column("Top-up Δ", width=100, minwidth=80, stretch=True, anchor=tk.CENTER)
+    camps_table.heading("Effective Daily", text="Effective Daily", anchor=tk.CENTER)
+    camps_table.column("Effective Daily", width=120, minwidth=100, stretch=True, anchor=tk.CENTER)
 
     # Empty state label (hidden unless no camps)
     camps_empty_label = ttk.Label(camps_frame, text="No camps available. Create one above.", style="Muted.TLabel")
