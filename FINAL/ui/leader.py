@@ -42,6 +42,7 @@ from services import (
     submit_consent_form,
     list_daily_reports_for_camper,
     submit_feedback,
+    has_consent_for_camp,
 )
 
 from ui.components import MessageBoard, Table, ScrollFrame
@@ -117,7 +118,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     def refresh_pay_summary() -> None:
         summary = get_leader_pay_summary(leader_id)
-        total_pay_var.set(f"Total: {summary['total_pay']:.2f}")
+        total_pay_var.set(f"Total: £{summary['total_pay']:.2f}")
         per_camp_text.config(state="normal")
         per_camp_text.delete("1.0", tk.END)
         if not summary["per_camp"]:
@@ -126,7 +127,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             for item in summary["per_camp"]:
                 per_camp_text.insert(
                     tk.END,
-                    f"{item['camp_name']}: {item['days']} day(s) • {item['pay']:.2f} units\n",
+                    f"{item['camp_name']}: {item['days']} day(s) • £{item['pay']:.2f}\n",
                 )
         per_camp_text.config(state="disabled")
 
@@ -1071,9 +1072,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         except Exception as exc:
             messagebox.showerror("Import", f"Failed to import: {exc}")
             return
+        skipped_overlap = result.get('skipped_overlap', 0)
         messagebox.showinfo(
             "Import complete",
-            f"Created: {result['created']}\nLinked: {result['linked']}\nDuplicates skipped: {result['duplicates']}\nErrors: {len(result['errors'])}",
+            f"Created: {result['created']}\nLinked: {result['linked']}\nDuplicates skipped: {result['duplicates']}\nOverlapping camps skipped: {skipped_overlap}\nErrors: {len(result['errors'])}",
         )
         load_campers_for_selection()
 
@@ -1091,9 +1093,17 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             messagebox.showinfo("Food", "No campers to adjust.")
             return
 
+        # Get camp details to show coordinator's default
+        camp = get_camp(assignment["camp_id"])
+        default_food = camp.get("default_food_units_per_camper_per_day", 0) if camp else 0
+
         dialog = tk.Toplevel(container)
         dialog.title("Adjust food units per day")
-        dialog.geometry("420x360")
+        dialog.geometry("420x400")
+
+        # Show coordinator's default food units
+        ttk.Label(dialog, text=f"Coordinator's default food units per camper: {default_food}", 
+                  font=("Helvetica", 10, "bold")).pack(pady=(10, 5))
 
         listbox = tk.Listbox(dialog)
         listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -1353,14 +1363,34 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             # Get camper_ids from selected indices
             selected_camper_ids = []
             newly_selected_count = 0
+            no_consent_campers = []
 
             for idx in sel_indices:
                 camper_data = camper_data_by_index[idx]
                 camper_id = camper_data["camper_id"]
+                
+                # Check if camper has consent for this camp
+                if not has_consent_for_camp(camper_id, assignment["camp_id"]):
+                    no_consent_campers.append(camper_data["name"].replace("✓ ", "").replace(" (already assigned)", ""))
+                    continue
+                
                 selected_camper_ids.append(camper_id)
 
                 if not camper_data["is_assigned"]:
                     newly_selected_count += 1
+
+            # Block if any campers don't have consent
+            if no_consent_campers:
+                messagebox.showerror(
+                    "Consent Required",
+                    f"Cannot assign campers without consent forms:\n• " + "\n• ".join(no_consent_campers[:5]) +
+                    (f"\n...and {len(no_consent_campers) - 5} more" if len(no_consent_campers) > 5 else "")
+                )
+                return
+
+            if not selected_camper_ids:
+                messagebox.showinfo("Assign", "No campers to assign (all blocked due to missing consent).")
+                return
 
             try:
                 assign_campers_to_activity(activity["id"], selected_camper_ids)
@@ -1414,13 +1444,13 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         # Spacer
         ttk.Frame(button_frame, width=20).pack(side=tk.LEFT, expand=True)
 
-        # Assign button
+        # Assign button - made wider for visibility
         ttk.Button(button_frame, text="Assign Selected",
-                   command=assign_selected, style="Primary.TButton").pack(side=tk.RIGHT, padx=2)
+                   command=assign_selected, style="Primary.TButton", width=15).pack(side=tk.RIGHT, padx=2)
 
-        # Cancel button
+        # Cancel button - made wider for visibility
         ttk.Button(button_frame, text="Cancel",
-                   command=dialog.destroy).pack(side=tk.RIGHT, padx=2)
+                   command=dialog.destroy, width=10).pack(side=tk.RIGHT, padx=2)
 
 
 

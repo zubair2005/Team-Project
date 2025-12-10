@@ -196,7 +196,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     tab_camps = tk.Frame(notebook)
     notebook.add(tab_camps, text="Camps")
 
-    pay_frame_title = ttk.Label(tab_camps, text="Daily pay rate per leader (currency units)", font=("Helvetica", 11, "bold"))
+    pay_frame_title = ttk.Label(tab_camps, text="Daily pay rate per leader (£/GBP)", font=("Helvetica", 11, "bold"))
     pay_frame_title.pack(anchor=tk.W, padx=10, pady=(6, 2))
     pay_frame = ttk.Frame(tab_camps, style="Card.TFrame", padding=10)
     pay_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
@@ -206,8 +206,14 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     def save_daily_rate() -> None:
         value = daily_rate_var.get().strip()
-        if not value.isdigit():
-            messagebox.showerror("Daily pay rate", "Enter a non-negative integer value.")
+        # Allow decimals (e.g., 15.50)
+        try:
+            rate = float(value)
+            if rate < 0:
+                messagebox.showerror("Daily pay rate", "Enter a non-negative value.")
+                return
+        except ValueError:
+            messagebox.showerror("Daily pay rate", "Enter a valid number (decimals allowed, e.g., 15.50).")
             return
         set_daily_pay_rate(value)
         messagebox.showinfo("Daily pay rate", "Updated successfully.")
@@ -366,10 +372,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     ttk.Label(form_frame, text="Leaders").grid(row=2, column=0, sticky=tk.W, padx=4, pady=2)
     ttk.Entry(form_frame, textvariable=leaders_var, width=25, state="readonly").grid(row=2, column=1, sticky=tk.W, padx=4, pady=2)
 
-    ttk.Label(form_frame, text="Start date").grid(row=3, column=0, sticky=tk.W, padx=4, pady=2)
+    ttk.Label(form_frame, text="Start date (YYYY-MM-DD)").grid(row=3, column=0, sticky=tk.W, padx=4, pady=2)
     ttk.Entry(form_frame, textvariable=start_var, width=25).grid(row=3, column=1, sticky=tk.W, padx=4, pady=2)
 
-    ttk.Label(form_frame, text="End date").grid(row=3, column=2, sticky=tk.W, padx=4, pady=2)
+    ttk.Label(form_frame, text="End date (YYYY-MM-DD)").grid(row=3, column=2, sticky=tk.W, padx=4, pady=2)
     ttk.Entry(form_frame, textvariable=end_var, width=25).grid(row=3, column=3, sticky=tk.W, padx=4, pady=2)
 
     ttk.Label(form_frame, text="Daily food units").grid(row=4, column=0, sticky=tk.W, padx=4, pady=2)
@@ -412,11 +418,15 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         county_var.set(vals.get("County", ""))
         city_var.set(vals.get("City", ""))
         type_var.set(vals.get("Type", "day"))
-        leaders_var.set(vals.get("Leaders", ""))
+        # Show placeholder if no leaders assigned
+        leaders_val = vals.get("Leaders", "") or ""
+        leaders_var.set(leaders_val if leaders_val.strip() and leaders_val != "-" else "(leader not yet added)")
         start_var.set(vals.get("Start", ""))
         end_var.set(vals.get("End", ""))
         daily_food_var.set(str(vals.get("Daily Food", "0")))
         default_food_var.set(str(vals.get("Default Food/Person", "0")))
+        # Update selected camp indicator in Stock tab
+        selected_camp_var.set(f"Selected camp: {vals.get('Name', 'Unknown')}")
         update_form_buttons()
 
     def validate_int(var: str, label: str) -> Optional[int]:
@@ -604,6 +614,11 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     ttk.Label(tab_stock, text="Top up daily food", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, padx=10, pady=(6, 2))
     topup_frame = ttk.Frame(tab_stock, style="Card.TFrame", padding=10)
     topup_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
+
+    # Selected camp indicator
+    selected_camp_var = tk.StringVar(value="No camp selected")
+    selected_camp_label = ttk.Label(topup_frame, textvariable=selected_camp_var, font=("Helvetica", 11, "bold"))
+    selected_camp_label.pack(pady=(0, 4), anchor=tk.W)
 
     ttk.Label(topup_frame, text="Select a camp from 'Camps' tab, then apply a delta:").pack(pady=4, anchor=tk.W)
 

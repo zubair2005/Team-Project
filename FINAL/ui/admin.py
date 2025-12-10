@@ -53,8 +53,8 @@ def _build_parent_camper_tab(container: tk.Widget) -> None:
         parents = [u for u in list_users() if u.get("role") == "parent" and u.get("enabled")]
         campers = list_campers()
         # Build fresh labels
-        p_labels = [f"{p.get('username')} (id={p.get('id')})" for p in parents]
-        c_labels = [f"{c.get('first_name')} {c.get('last_name')} (id={c.get('id')})" for c in campers]
+        p_labels = [f"{p.get('username')}" for p in parents]
+        c_labels = [f"{c.get('first_name')} {c.get('last_name')}" for c in campers]
         # Update mappings
         parent_label_to_id.clear()
         parent_label_to_id.update({label: int(p["id"]) for label, p in zip(p_labels, parents)})
@@ -91,7 +91,7 @@ def _build_parent_camper_tab(container: tk.Widget) -> None:
         parent_id = parent_label_to_id[parent_label]
         linked = list_parent_campers(parent_id)
         for c in linked:
-            camper_name = f'{c["first_name"]} {c["last_name"]} (id={c["id"]})'
+            camper_name = f'{c["first_name"]} {c["last_name"]}'
             tree.insert("", tk.END, values=(camper_name,))
     def _link_parent_camper() -> None:
         parent_label = parent_var.get()

@@ -309,6 +309,9 @@ def list_messages_lines(limit: int = 100) -> List[str]:
     lines = []
     for row in list_messages(limit):
         sender = row.get("sender_username") or "(system)"
+        # Filter out system messages
+        if sender == "(system)":
+            continue
         created = row.get("created_at") or ""
         content = row.get("content") or ""
         lines.append(f"[{created}] {sender}: {content}")
@@ -406,7 +409,12 @@ def update_camp(
 def delete_camp(camp_id: int) -> bool:
     try:
         with _connect() as conn:
-            conn.execute("DELETE FROM camps WHERE id = ?;", (camp_id,))
+            # Disable foreign keys to avoid users_old reference issue
+            conn.execute("PRAGMA foreign_keys = OFF;")
+            try:
+                conn.execute("DELETE FROM camps WHERE id = ?;", (camp_id,))
+            finally:
+                conn.execute("PRAGMA foreign_keys = ON;")
         return True
     except sqlite3.IntegrityError:
         return False
@@ -533,6 +541,7 @@ def import_campers_from_csv(camp_id: int, file_path: str) -> Dict[str, Any]:
 
     created = 0
     linked = 0
+    skipped_overlap = 0
     errors: List[str] = []
 
     def _find_camper(first_name: str, last_name: str, dob: str) -> Optional[int]:
@@ -545,6 +554,30 @@ def import_campers_from_csv(camp_id: int, file_path: str) -> Dict[str, Any]:
                 (first_name, last_name, dob),
             ).fetchone()
             return row["id"] if row else None
+
+    def _check_overlapping_camps(camper_id: int, target_camp: Dict) -> bool:
+        """Check if camper is already assigned to a camp with overlapping dates."""
+        target_start = pd.to_datetime(target_camp["start_date"], format='%Y-%m-%d')
+        target_end = pd.to_datetime(target_camp["end_date"], format='%Y-%m-%d')
+        
+        with _dict_cursor(_connect()) as conn:
+            rows = conn.execute(
+                """
+                SELECT c.start_date, c.end_date, c.name
+                FROM camp_campers cc
+                JOIN camps c ON c.id = cc.camp_id
+                WHERE cc.camper_id = ?
+                """,
+                (camper_id,),
+            ).fetchall()
+        
+        for row in rows:
+            existing_start = pd.to_datetime(row["start_date"], format='%Y-%m-%d')
+            existing_end = pd.to_datetime(row["end_date"], format='%Y-%m-%d')
+            # Check for overlap: NOT (target_end < existing_start OR target_start > existing_end)
+            if not (target_end < existing_start or target_start > existing_end):
+                return True  # Overlap found
+        return False
 
     default_food = int(camp.get("default_food_units_per_camper_per_day", 0) or 0)
 
@@ -566,6 +599,11 @@ def import_campers_from_csv(camp_id: int, file_path: str) -> Dict[str, Any]:
                 camper_id = cursor.lastrowid
                 created += 1
             else:
+                # Check for overlapping camp assignments
+                if _check_overlapping_camps(camper_id, camp):
+                    skipped_overlap += 1
+                    errors.append(f"Skipped {first_name} {last_name}: already in overlapping camp")
+                    continue
                 linked += 1
 
             conn.execute(
@@ -581,6 +619,7 @@ def import_campers_from_csv(camp_id: int, file_path: str) -> Dict[str, Any]:
         "created": created,
         "linked": linked,
         "duplicates": duplicates,
+        "skipped_overlap": skipped_overlap,
         "errors": errors,
         "preview": preview_rows,
     }
@@ -1339,3 +1378,17 @@ def submit_feedback(parent_user_id: int, camper_id: int, camp_id: int, feedback:
             """,
             (parent_user_id, camper_id, camp_id, text),
         )
+
+
+def has_consent_for_camp(camper_id: int, camp_id: int) -> bool:
+    """Check if any parent has given consent for this camper at this camp."""
+    with _dict_cursor(_connect()) as conn:
+        row = conn.execute(
+            """
+            SELECT consent FROM parent_consents
+            WHERE camper_id = ? AND camp_id = ? AND consent = 1
+            LIMIT 1;
+            """,
+            (camper_id, camp_id),
+        ).fetchone()
+        return row is not None
