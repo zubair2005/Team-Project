@@ -1,10 +1,3 @@
-# =========================
-# COMBINED CODE 1 + CODE 2
-# =========================
-
-# -------------------------
-# CODE 1 START
-# -------------------------
 import csv
 import sqlite3
 from pathlib import Path
@@ -21,85 +14,6 @@ def _dict_cursor(conn: sqlite3.Connection) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     return conn
 
-# =========================
-# Parent/Consent table init
-# =========================
-def _ensure_parent_tables() -> None:
-    """Create parent-related tables if they don't exist. Safe to call multiple times."""
-    with _connect() as conn:
-        # Parent ↔ Camper linking
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS parent_campers (
-                parent_id INTEGER NOT NULL,
-                camper_id INTEGER NOT NULL,
-                UNIQUE(parent_id, camper_id)
-            );
-            """
-        )
-        # Parent consent per camper per camp
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS parent_consents (
-                parent_id INTEGER NOT NULL,
-                camper_id INTEGER NOT NULL,
-                camp_id   INTEGER NOT NULL,
-                consent   INTEGER NOT NULL DEFAULT 0,
-                notes     TEXT,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(parent_id, camper_id, camp_id)
-            );
-            """
-        )
-        # Parent feedback per camper per camp (free text, many entries allowed)
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS parent_feedback (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                parent_id INTEGER NOT NULL,
-                camper_id INTEGER NOT NULL,
-                camp_id   INTEGER NOT NULL,
-                feedback  TEXT NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-            """
-        )
-
-
-def _ensure_parent_role_allowed() -> None:
-    """Rebuild users table role CHECK to include 'parent' if missing."""
-    with _dict_cursor(_connect()) as conn_ro:
-        row = conn_ro.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='users';"
-        ).fetchone()
-        sql = row["sql"] if row else ""
-    if "CHECK (role IN ('admin','coordinator','leader'))" in (sql or "") and "parent" not in sql:
-        with _connect() as conn:
-            conn.execute("PRAGMA foreign_keys=OFF;")
-            conn.execute("BEGIN;")
-            try:
-                conn.execute("ALTER TABLE users RENAME TO users_old;")
-                conn.execute(
-                    """
-                    CREATE TABLE users (
-                        id INTEGER PRIMARY KEY,
-                        username TEXT NOT NULL UNIQUE,
-                        role TEXT NOT NULL CHECK (role IN ('admin','coordinator','leader','parent')),
-                        enabled INTEGER NOT NULL DEFAULT 1,
-                        password TEXT NOT NULL DEFAULT ''
-                    );
-                    """
-                )
-                conn.execute(
-                    "INSERT INTO users(id, username, role, enabled, password) SELECT id, username, role, enabled, password FROM users_old;"
-                )
-                conn.execute("DROP TABLE users_old;")
-                conn.execute("COMMIT;")
-            except Exception:
-                conn.execute("ROLLBACK;")
-                raise
-            finally:
-                conn.execute("PRAGMA foreign_keys=ON;")
 # =========================
 # UK phone (+44) utilities
 # =========================
@@ -201,13 +115,8 @@ def normalize_all_camper_phones() -> Dict[str, int]:
 
 
 # -------------------------
-# CODE 1 END
+# Authentication & Users
 # -------------------------
-
-# -------------------------
-# CODE 2 START
-# -------------------------
-
 def authenticate(username: str, password: str) -> Optional[Dict[str, Any]]:
     """Return user dict if credentials are valid and user is enabled, else None.
 
@@ -225,59 +134,6 @@ def authenticate(username: str, password: str) -> Optional[Dict[str, Any]]:
         if (row["password"] or "") != (password or ""):
             return None
         return dict(row)
-
-
-def list_messages(limit: int = 100) -> List[Dict[str, Any]]:
-    with _dict_cursor(_connect()) as conn:
-        rows = conn.execute(
-            """
-            SELECT m.id, m.content, m.created_at,
-                   u.username AS sender_username, m.sender_user_id
-            FROM messages m
-            LEFT JOIN users u ON u.id = m.sender_user_id
-            ORDER BY m.id DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-def post_message(sender_user_id: Optional[int], content: str) -> None:
-    cleaned = (content or "").strip()
-    if not cleaned:
-        return
-    with _connect() as conn:
-        conn.execute(
-            "INSERT INTO messages(sender_user_id, content) VALUES (?, ?);",
-            (sender_user_id, cleaned),
-        )
-
-
-def list_messages_lines(limit: int = 100) -> List[str]:
-    lines = []
-    for row in list_messages(limit):
-        sender = row.get("sender_username") or "(system)"
-        created = row.get("created_at") or ""
-        content = row.get("content") or ""
-        lines.append(f"[{created}] {sender}: {content}")
-    return list(reversed(lines))
-
-def effective_daily_stock_for_camp(camp_id: int) -> int:
-    """Compute base + sum(top-ups) for a camp."""
-    with _dict_cursor(_connect()) as conn:
-        base_row = conn.execute(
-            "SELECT daily_food_units_planned FROM camps WHERE id = ?;",
-            (camp_id,),
-        ).fetchone()
-        if base_row is None:
-            return 0
-        base = int(base_row["daily_food_units_planned"]) or 0
-        delta = conn.execute(
-            "SELECT COALESCE(SUM(delta_daily_units),0) AS s FROM stock_topups WHERE camp_id = ?;",
-            (camp_id,),
-        ).fetchone()["s"]
-        return base + int(delta or 0)
 
 
 def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
@@ -303,52 +159,8 @@ def list_users() -> List[Dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
-def list_campers() -> List[Dict[str, Any]]:
-    """List all campers with core fields."""
-    with _dict_cursor(_connect()) as conn:
-        rows = conn.execute(
-            """
-            SELECT id, first_name, last_name, dob, emergency_contact
-            FROM campers
-            ORDER BY LOWER(last_name), LOWER(first_name);
-            """
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-def count_roles_total() -> Dict[str, int]:
-    """Return total counts per role across all users (enabled and disabled). Includes 'parent' if present."""
-    with _dict_cursor(_connect()) as conn:
-        rows = conn.execute(
-            "SELECT role, COUNT(*) as c FROM users GROUP BY role;"
-        ).fetchall()
-    counts: Dict[str, int] = {}
-    for r in rows:
-        counts[str(r["role"])] = int(r["c"])
-    # Ensure standard roles present
-    for role in ("admin", "coordinator", "leader", "parent"):
-        counts.setdefault(role, 0)
-    return counts
-
-
-def count_roles_enabled() -> Dict[str, int]:
-    """Return counts per role for enabled users only. Includes 'parent' if present."""
-    with _dict_cursor(_connect()) as conn:
-        rows = conn.execute(
-            "SELECT role, COUNT(*) as c FROM users WHERE enabled = 1 GROUP BY role;"
-        ).fetchall()
-    counts: Dict[str, int] = {}
-    for r in rows:
-        counts[str(r["role"])] = int(r["c"])
-    for role in ("admin", "coordinator", "leader", "parent"):
-        counts.setdefault(role, 0)
-    return counts
-
-
 def create_user(username: str, role: str) -> bool:
     try:
-        if role == "parent":
-            _ensure_parent_role_allowed()
         with _connect() as conn:
             conn.execute(
                 "INSERT INTO users(username, role, enabled, password) VALUES (?, ?, 1, '');",
@@ -401,6 +213,38 @@ def delete_user(user_id: int) -> bool:
         return False
 
 
+def count_roles_total() -> Dict[str, int]:
+    """Return total counts per role across all users (enabled and disabled)."""
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT role, COUNT(*) as c FROM users GROUP BY role;"
+        ).fetchall()
+    counts: Dict[str, int] = {}
+    for r in rows:
+        counts[str(r["role"])] = int(r["c"])
+    # Ensure standard roles present
+    for role in ("admin", "coordinator", "leader", "parent"):
+        counts.setdefault(role, 0)
+    return counts
+
+
+def count_roles_enabled() -> Dict[str, int]:
+    """Return counts per role for enabled users only."""
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT role, COUNT(*) as c FROM users WHERE enabled = 1 GROUP BY role;"
+        ).fetchall()
+    counts: Dict[str, int] = {}
+    for r in rows:
+        counts[str(r["role"])] = int(r["c"])
+    for role in ("admin", "coordinator", "leader", "parent"):
+        counts.setdefault(role, 0)
+    return counts
+
+
+# -------------------------
+# Settings
+# -------------------------
 def get_setting(key: str, default: str = "") -> str:
     with _dict_cursor(_connect()) as conn:
         row = conn.execute("SELECT value FROM settings WHERE key = ?;", (key,)).fetchone()
@@ -417,9 +261,167 @@ def set_setting(key: str, value: str) -> None:
         )
 
 
+def get_daily_pay_rate() -> str:
+    return get_setting("daily_pay_rate", "0")
+
+
+def set_daily_pay_rate(value: str) -> None:
+    set_setting("daily_pay_rate", value)
+
+
 # -------------------------
-# Camper update operations
+# Messages
 # -------------------------
+def list_messages(limit: int = 100) -> List[Dict[str, Any]]:
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT m.id, m.content, m.created_at,
+                   u.username AS sender_username, m.sender_user_id
+            FROM messages m
+            LEFT JOIN users u ON u.id = m.sender_user_id
+            ORDER BY m.id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def post_message(sender_user_id: Optional[int], content: str) -> None:
+    cleaned = (content or "").strip()
+    if not cleaned:
+        return
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO messages(sender_user_id, content) VALUES (?, ?);",
+            (sender_user_id, cleaned),
+        )
+
+
+def list_messages_lines(limit: int = 100) -> List[str]:
+    lines = []
+    for row in list_messages(limit):
+        sender = row.get("sender_username") or "(system)"
+        created = row.get("created_at") or ""
+        content = row.get("content") or ""
+        lines.append(f"[{created}] {sender}: {content}")
+    return list(reversed(lines))
+
+
+# -------------------------
+# Camp Management
+# -------------------------
+def list_camps() -> List[Dict[str, Any]]:
+    df = get_camp_summary_df()
+    if df.empty:
+        return []
+    return df.to_dict("records")
+
+
+def get_camp(camp_id: int) -> Optional[Dict[str, Any]]:
+    with _dict_cursor(_connect()) as conn:
+        row = conn.execute("SELECT * FROM camps WHERE id = ?;", (camp_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def create_camp(
+        name: str,
+        location: str,
+        area: str,
+        camp_type: str,
+        start_date: str,
+        end_date: str,
+        daily_food_units_planned: int,
+        default_food_units_per_camper_per_day: int,
+) -> bool:
+    try:
+        with _connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO camps(
+                    name, location, area, type, start_date, end_date,
+                    daily_food_units_planned, default_food_units_per_camper_per_day
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    name.strip(),
+                    location.strip(),
+                    area.strip(),
+                    camp_type,
+                    start_date,
+                    end_date,
+                    daily_food_units_planned,
+                    default_food_units_per_camper_per_day,
+                ),
+            )
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def update_camp(
+        camp_id: int,
+        name: str,
+        location: str,
+        area: str,
+        camp_type: str,
+        start_date: str,
+        end_date: str,
+        daily_food_units_planned: int,
+        default_food_units_per_camper_per_day: int,
+) -> bool:
+    try:
+        with _connect() as conn:
+            conn.execute(
+                """
+                UPDATE camps
+                SET name = ?, location = ?, area = ?, type = ?, start_date = ?, end_date = ?,
+                    daily_food_units_planned = ?, default_food_units_per_camper_per_day = ?
+                WHERE id = ?;
+                """,
+                (
+                    name.strip(),
+                    location.strip(),
+                    area.strip(),
+                    camp_type,
+                    start_date,
+                    end_date,
+                    daily_food_units_planned,
+                    default_food_units_per_camper_per_day,
+                    camp_id,
+                ),
+            )
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def delete_camp(camp_id: int) -> bool:
+    try:
+        with _connect() as conn:
+            conn.execute("DELETE FROM camps WHERE id = ?;", (camp_id,))
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+# -------------------------
+# Campers
+# -------------------------
+def list_campers() -> List[Dict[str, Any]]:
+    """List all campers with core fields."""
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, first_name, last_name, dob, emergency_contact
+            FROM campers
+            ORDER BY LOWER(last_name), LOWER(first_name);
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def update_camper(camper_id: int, first_name: str, last_name: str, dob: str, emergency_contact: str) -> bool:
     """Update core camper fields. UI should validate formats prior to calling this.
 
@@ -440,14 +442,374 @@ def update_camper(camper_id: int, first_name: str, last_name: str, dob: str, eme
         return False
 
 
-def get_daily_pay_rate() -> str:
-    return get_setting("daily_pay_rate", "0")
+def delete_camper(camper_id: int) -> bool:
+    """Delete a camper. Returns True on success, False on failure."""
+    try:
+        with _connect() as conn:
+            # First, check if camper exists
+            cursor = conn.execute(
+                "SELECT id FROM campers WHERE id = ?;",
+                (camper_id,)
+            )
+            if not cursor.fetchone():
+                return False
+
+            # Delete the camper
+            conn.execute("DELETE FROM campers WHERE id = ?;", (camper_id,))
+            return True
+    except sqlite3.IntegrityError as e:
+        print(f"Error deleting camper {camper_id}: {e}")
+        return False
+    except Exception as e:
+        print(f"Error deleting camper {camper_id}: {e}")
+        return False
 
 
-def set_daily_pay_rate(value: str) -> None:
-    set_setting("daily_pay_rate", value)
+def list_camp_campers(camp_id: int) -> List[Dict[str, Any]]:
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                cc.id,                       -- camp_campers row id (kept as 'id')
+                cam.id AS camper_id,         -- underlying campers.id
+                cc.food_units_per_day,
+                cam.first_name,
+                cam.last_name,
+                cam.dob,
+                cam.emergency_contact
+            FROM camp_campers cc
+            JOIN campers cam ON cam.id = cc.camper_id
+            WHERE cc.camp_id = ?
+            ORDER BY LOWER(cam.last_name), LOWER(cam.first_name);
+            """,
+            (camp_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
+def update_camp_camper_food(camp_camper_id: int, food_units_per_day: int) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE camp_campers SET food_units_per_day = ? WHERE id = ?;",
+            (food_units_per_day, camp_camper_id),
+        )
+
+
+def import_campers_from_csv(camp_id: int, file_path: str) -> Dict[str, Any]:
+    camp = get_camp(camp_id)
+    if camp is None:
+        raise ValueError("Camp not found")
+
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(file_path)
+
+    with path.open(newline="", encoding="utf-8") as csvfile:
+        reader = csv.DictReader(csvfile)
+        expected_header = {"first_name", "last_name", "dob", "emergency_contact"}
+        if set(reader.fieldnames or []) != expected_header:
+            raise ValueError("CSV header must be exactly first_name,last_name,dob,emergency_contact")
+
+        rows = list(reader)
+
+    unique_rows: Dict[Tuple[str, str, str], Dict[str, str]] = {}
+    duplicates = 0
+    for row in rows:
+        key = (
+            row["first_name"].strip(),
+            row["last_name"].strip(),
+            row["dob"].strip(),
+        )
+        if key in unique_rows:
+            duplicates += 1
+            continue
+        unique_rows[key] = row
+
+    created = 0
+    linked = 0
+    errors: List[str] = []
+
+    def _find_camper(first_name: str, last_name: str, dob: str) -> Optional[int]:
+        with _dict_cursor(_connect()) as conn:
+            row = conn.execute(
+                """
+                SELECT id FROM campers
+                WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) AND dob = ?
+                """,
+                (first_name, last_name, dob),
+            ).fetchone()
+            return row["id"] if row else None
+
+    default_food = int(camp.get("default_food_units_per_camper_per_day", 0) or 0)
+
+    with _connect() as conn:
+        for (first_name, last_name, dob), row in unique_rows.items():
+            if not first_name or not last_name or not dob:
+                errors.append(f"Invalid row missing data: {row}")
+                continue
+
+            camper_id = _find_camper(first_name, last_name, dob)
+            if camper_id is None:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO campers(first_name, last_name, dob, emergency_contact)
+                    VALUES (?, ?, ?, ?);
+                    """,
+                    (first_name, last_name, dob, row["emergency_contact"].strip()),
+                )
+                camper_id = cursor.lastrowid
+                created += 1
+            else:
+                linked += 1
+
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO camp_campers(camp_id, camper_id, food_units_per_day)
+                VALUES (?, ?, ?);
+                """,
+                (camp_id, camper_id, default_food),
+            )
+
+    preview_rows = list(unique_rows.values())[:10]
+    return {
+        "created": created,
+        "linked": linked,
+        "duplicates": duplicates,
+        "errors": errors,
+        "preview": preview_rows,
+    }
+
+
+# -------------------------
+# Leader Assignments
+# -------------------------
+def list_leader_assignments(leader_user_id: int) -> List[Dict[str, Any]]:
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT la.id, la.camp_id, c.name, c.start_date, c.end_date, c.location, c.area
+            FROM leader_assignments la
+            JOIN camps c ON la.camp_id = c.id
+            WHERE la.leader_user_id = ?
+            ORDER BY c.start_date;
+            """,
+            (leader_user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def list_available_camps_for_leader(leader_user_id: int) -> List[Dict[str, Any]]:
+    assignments = list_leader_assignments(leader_user_id)
+    assigned_ranges = [(
+        pd.to_datetime(rec["start_date"], format='%Y-%m-%d'),
+        pd.to_datetime(rec["end_date"], format='%Y-%m-%d')
+    ) for rec in assignments]
+
+    df = get_camp_summary_df()
+    if df.empty:
+        return []
+
+    available = []
+    for _, camp in df.iterrows():
+        if camp["id"] in {rec["camp_id"] for rec in assignments}:
+            continue
+        camp_start = pd.to_datetime(camp["start_date"], format='%Y-%m-%d')
+        camp_end = pd.to_datetime(camp["end_date"], format='%Y-%m-%d')
+        conflict = False
+        for start, end in assigned_ranges:
+            if not (camp_end < start or camp_start > end):
+                conflict = True
+                break
+        if not conflict:
+            available.append(camp.to_dict())
+
+    return available
+
+
+def assign_leader_to_camp(leader_user_id: int, camp_id: int) -> bool:
+    """Assign a leader to a camp. Returns True on success, False on failure."""
+    try:
+        with _connect() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO leader_assignments(leader_user_id, camp_id) VALUES (?, ?);",
+                (leader_user_id, camp_id),
+            )
+        return True
+    except Exception:
+        return False
+
+
+def remove_leader_assignment(assignment_id: int, leader_user_id: int) -> bool:
+    with _connect() as conn:
+        res = conn.execute(
+            "DELETE FROM leader_assignments WHERE id = ? AND leader_user_id = ?;",
+            (assignment_id, leader_user_id),
+        )
+    return res.rowcount > 0
+
+
+# -------------------------
+# Activities
+# -------------------------
+def list_camp_activities(camp_id: int) -> List[Dict[str, Any]]:
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, name, date
+            FROM activities
+            WHERE camp_id = ?
+            ORDER BY date, name;
+            """,
+            (camp_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def create_activity(camp_id: int, name: str, date: str) -> bool:
+    try:
+        with _connect() as conn:
+            conn.execute(
+                "INSERT INTO activities(camp_id, name, date) VALUES (?, ?, ?);",
+                (camp_id, name.strip(), date),
+            )
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def delete_activity(activity_id: int, camp_id: int) -> bool:
+    with _connect() as conn:
+        res = conn.execute(
+            "DELETE FROM activities WHERE id = ? AND camp_id = ?;",
+            (activity_id, camp_id),
+        )
+    return res.rowcount > 0
+
+
+def update_activity(activity_id: int, camp_id: int, name: str, date: str) -> bool:
+    """Update an activity's name and date; returns True if a row was changed."""
+    try:
+        with _connect() as conn:
+            res = conn.execute(
+                """
+                UPDATE activities
+                SET name = ?, date = ?
+                WHERE id = ? AND camp_id = ?;
+                """,
+                (name.strip(), date, activity_id, camp_id),
+            )
+        return res.rowcount > 0
+    except sqlite3.IntegrityError:
+        return False
+
+
+def assign_campers_to_activity(activity_id: int, camper_ids: List[int]) -> None:
+    with _connect() as conn:
+        conn.executemany(
+            "INSERT OR IGNORE INTO camper_activity(activity_id, camper_id) VALUES (?, ?);",
+            [(activity_id, camper_id) for camper_id in camper_ids],
+        )
+
+
+def list_activity_campers(activity_id: int) -> List[Dict[str, Any]]:
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT cam.id, cam.first_name, cam.last_name
+            FROM camper_activity ca
+            JOIN campers cam ON cam.id = ca.camper_id
+            WHERE ca.activity_id = ?
+            ORDER BY LOWER(cam.last_name), LOWER(cam.first_name);
+            """,
+            (activity_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# -------------------------
+# Daily Reports
+# -------------------------
+def list_daily_reports(leader_user_id: int, camp_id: int) -> List[Dict[str, Any]]:
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, date, notes
+            FROM daily_reports
+            WHERE leader_user_id = ? AND camp_id = ?
+            ORDER BY date DESC;
+            """,
+            (leader_user_id, camp_id),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def save_daily_report(leader_user_id: int, camp_id: int, date: str, notes: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO daily_reports(camp_id, leader_user_id, date, notes)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(date, camp_id, leader_user_id) DO UPDATE SET notes = excluded.notes;
+            """,
+            (camp_id, leader_user_id, date, notes.strip()),
+        )
+
+
+def delete_daily_report(leader_user_id: int, camp_id: int, date: str) -> None:
+    """Delete a daily report, handling foreign key constraints."""
+    with _connect() as conn:
+        # Temporarily disable foreign keys
+        conn.execute("PRAGMA foreign_keys = OFF;")
+        try:
+            conn.execute(
+                "DELETE FROM daily_reports WHERE leader_user_id = ? AND camp_id = ? AND date = ?;",
+                (leader_user_id, camp_id, date),
+            )
+        finally:
+            # Re-enable foreign keys
+            conn.execute("PRAGMA foreign_keys = ON;")
+
+
+# -------------------------
+# Stock Management
+# -------------------------
+def add_stock_topup(camp_id: int, delta_daily_units: int) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO stock_topups(camp_id, delta_daily_units) VALUES (?, ?);",
+            (camp_id, delta_daily_units),
+        )
+
+
+def list_stock_topups(camp_id: int) -> List[Dict[str, Any]]:
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT id, created_at, delta_daily_units FROM stock_topups WHERE camp_id = ? ORDER BY id DESC;",
+            (camp_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def effective_daily_stock_for_camp(camp_id: int) -> int:
+    """Compute base + sum(top-ups) for a camp."""
+    with _dict_cursor(_connect()) as conn:
+        base_row = conn.execute(
+            "SELECT daily_food_units_planned FROM camps WHERE id = ?;",
+            (camp_id,),
+        ).fetchone()
+        if base_row is None:
+            return 0
+        base = int(base_row["daily_food_units_planned"]) or 0
+        delta = conn.execute(
+            "SELECT COALESCE(SUM(delta_daily_units),0) AS s FROM stock_topups WHERE camp_id = ?;",
+            (camp_id,),
+        ).fetchone()["s"]
+        return base + int(delta or 0)
+
+
+# -------------------------
+# Analytics & Statistics
+# -------------------------
 def get_camp_summary_df() -> pd.DataFrame:
     with _connect() as conn:
         df = pd.read_sql_query(
@@ -561,8 +923,9 @@ def compute_day_by_day_food_usage(camp_id: int) -> List[Dict[str, Any]]:
     if not camp:
         return []
 
-    start = pd.to_datetime(camp["start_date"])
-    end = pd.to_datetime(camp["end_date"])
+    start = pd.to_datetime(camp["start_date"], format='%Y-%m-%d')
+    end = pd.to_datetime(camp["end_date"], format='%Y-%m-%d')
+
     dates = pd.date_range(start, end, freq="D")
 
     # Cache top-up sum once instead of querying per day
@@ -647,9 +1010,10 @@ def compute_leader_pay_report() -> List[Dict[str, Any]]:
     if assignments.empty:
         return []
 
-    # Parse dates robustly: support both DD-MM-YYYY and YYYY-MM-DD inputs
-    assignments["start_date"] = pd.to_datetime(assignments["start_date"], dayfirst=True, errors="coerce")
-    assignments["end_date"] = pd.to_datetime(assignments["end_date"], dayfirst=True, errors="coerce")
+    # Parse dates using YYYY-MM-DD format
+    assignments["start_date"] = pd.to_datetime(assignments["start_date"], format='%Y-%m-%d', errors="coerce")
+    assignments["end_date"] = pd.to_datetime(assignments["end_date"], format='%Y-%m-%d', errors="coerce")
+
     # Drop any rows with invalid dates to avoid downstream crashes
     assignments = assignments.dropna(subset=["start_date", "end_date"])
     # Compute assignment days; ensure strictly non-negative for pay purposes
@@ -727,9 +1091,10 @@ def get_leader_statistics(leader_user_id: int) -> List[Dict[str, Any]]:
         # Get camp details for duration
         camp = get_camp(camp_id)
         if camp:
-            # Parse camp dates robustly; handle invalid values
-            start = pd.to_datetime(camp["start_date"], dayfirst=True, errors="coerce")
-            end = pd.to_datetime(camp["end_date"], dayfirst=True, errors="coerce")
+            # Parse camp dates using YYYY-MM-DD format
+            start = pd.to_datetime(camp["start_date"], format='%Y-%m-%d', errors="coerce")
+            end = pd.to_datetime(camp["end_date"], format='%Y-%m-%d', errors="coerce")
+
             if pd.isna(start) or pd.isna(end):
                 camp_days = 0
                 total_food_used = 0
@@ -759,111 +1124,6 @@ def get_leader_statistics(leader_user_id: int) -> List[Dict[str, Any]]:
         })
 
     return stats
-
-
-def list_camps() -> List[Dict[str, Any]]:
-    df = get_camp_summary_df()
-    if df.empty:
-        return []
-    return df.to_dict("records")
-
-
-def create_camp(
-        name: str,
-        location: str,
-        area: str,
-        camp_type: str,
-        start_date: str,
-        end_date: str,
-        daily_food_units_planned: int,
-        default_food_units_per_camper_per_day: int,
-) -> bool:
-    try:
-        with _connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO camps(
-                    name, location, area, type, start_date, end_date,
-                    daily_food_units_planned, default_food_units_per_camper_per_day
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-                """,
-                (
-                    name.strip(),
-                    location.strip(),
-                    area.strip(),
-                    camp_type,
-                    start_date,
-                    end_date,
-                    daily_food_units_planned,
-                    default_food_units_per_camper_per_day,
-                ),
-            )
-        return True
-    except sqlite3.IntegrityError:
-        return False
-
-
-def update_camp(
-        camp_id: int,
-        name: str,
-        location: str,
-        area: str,
-        camp_type: str,
-        start_date: str,
-        end_date: str,
-        daily_food_units_planned: int,
-        default_food_units_per_camper_per_day: int,
-) -> bool:
-    try:
-        with _connect() as conn:
-            conn.execute(
-                """
-                UPDATE camps
-                SET name = ?, location = ?, area = ?, type = ?, start_date = ?, end_date = ?,
-                    daily_food_units_planned = ?, default_food_units_per_camper_per_day = ?
-                WHERE id = ?;
-                """,
-                (
-                    name.strip(),
-                    location.strip(),
-                    area.strip(),
-                    camp_type,
-                    start_date,
-                    end_date,
-                    daily_food_units_planned,
-                    default_food_units_per_camper_per_day,
-                    camp_id,
-                ),
-            )
-        return True
-    except sqlite3.IntegrityError:
-        return False
-
-
-def delete_camp(camp_id: int) -> bool:
-    try:
-        with _connect() as conn:
-            conn.execute("DELETE FROM camps WHERE id = ?;", (camp_id,))
-        return True
-    except sqlite3.IntegrityError:
-        return False
-
-
-def add_stock_topup(camp_id: int, delta_daily_units: int) -> None:
-    with _connect() as conn:
-        conn.execute(
-            "INSERT INTO stock_topups(camp_id, delta_daily_units) VALUES (?, ?);",
-            (camp_id, delta_daily_units),
-        )
-
-
-def list_stock_topups(camp_id: int) -> List[Dict[str, Any]]:
-    with _dict_cursor(_connect()) as conn:
-        rows = conn.execute(
-            "SELECT id, created_at, delta_daily_units FROM stock_topups WHERE camp_id = ? ORDER BY id DESC;",
-            (camp_id,),
-        ).fetchall()
-        return [dict(r) for r in rows]
 
 
 def get_coordinator_dashboard_stats() -> Dict[str, Any]:
@@ -918,177 +1178,47 @@ def get_coordinator_dashboard_stats() -> Dict[str, Any]:
     }
 
 
-def list_leader_assignments(leader_user_id: int) -> List[Dict[str, Any]]:
+# -------------------------
+# Parent/Consent Features (SIMPLIFIED)
+# -------------------------
+def list_parent_campers(parent_id: int) -> List[Dict[str, Any]]:
+    """Return campers linked to the given parent user."""
     with _dict_cursor(_connect()) as conn:
         rows = conn.execute(
             """
-            SELECT la.id, la.camp_id, c.name, c.start_date, c.end_date, c.location, c.area
-            FROM leader_assignments la
-            JOIN camps c ON la.camp_id = c.id
-            WHERE la.leader_user_id = ?
-            ORDER BY c.start_date;
+            SELECT c.id, c.first_name, c.last_name, c.dob, c.emergency_contact
+            FROM parent_campers pc
+            JOIN campers c ON c.id = pc.camper_id
+            WHERE pc.parent_id = ?
+            ORDER BY LOWER(c.last_name), LOWER(c.first_name);
             """,
-            (leader_user_id,),
+            (parent_id,),
         ).fetchall()
         return [dict(r) for r in rows]
 
 
-def list_available_camps_for_leader(leader_user_id: int) -> List[Dict[str, Any]]:
-    assignments = list_leader_assignments(leader_user_id)
-    assigned_ranges = [(
-        pd.to_datetime(rec["start_date"]),
-        pd.to_datetime(rec["end_date"])
-    ) for rec in assignments]
-
-    df = get_camp_summary_df()
-    if df.empty:
-        return []
-
-    available = []
-    for _, camp in df.iterrows():
-        if camp["id"] in {rec["camp_id"] for rec in assignments}:
-            continue
-        camp_start = pd.to_datetime(camp["start_date"])
-        camp_end = pd.to_datetime(camp["end_date"])
-        conflict = False
-        for start, end in assigned_ranges:
-            if not (camp_end < start or camp_start > end):
-                conflict = True
-                break
-        if not conflict:
-            available.append(camp.to_dict())
-
-    return available
-
-
-def assign_leader_to_camp(leader_user_id: int, camp_id: int) -> bool:
-    available_camps = list_available_camps_for_leader(leader_user_id)
-    if all(camp["id"] != camp_id for camp in available_camps):
-        return False
-    with _connect() as conn:
-        conn.execute(
-            "INSERT INTO leader_assignments(leader_user_id, camp_id) VALUES (?, ?);",
-            (leader_user_id, camp_id),
-        )
-    return True
-
-
-def remove_leader_assignment(assignment_id: int, leader_user_id: int) -> bool:
-    with _connect() as conn:
-        res = conn.execute(
-            "DELETE FROM leader_assignments WHERE id = ? AND leader_user_id = ?;",
-            (assignment_id, leader_user_id),
-        )
-    return res.rowcount > 0
-
-
-def get_camp(camp_id: int) -> Optional[Dict[str, Any]]:
+def get_consent_form(parent_id: int, camper_id: int, camp_id: int) -> Optional[Dict[str, Any]]:
+    """Get the stored consent row for parent/camper/camp, if any."""
     with _dict_cursor(_connect()) as conn:
-        row = conn.execute("SELECT * FROM camps WHERE id = ?;", (camp_id,)).fetchone()
+        row = conn.execute(
+            """
+            SELECT parent_id, camper_id, camp_id, consent, notes, updated_at
+            FROM parent_consents
+            WHERE parent_id = ? AND camper_id = ? AND camp_id = ?;
+            """,
+            (parent_id, camper_id, camp_id),
+        ).fetchone()
         return dict(row) if row else None
 
-
-def list_camp_campers(camp_id: int) -> List[Dict[str, Any]]:
-    with _dict_cursor(_connect()) as conn:
-        rows = conn.execute(
-            """
-            SELECT
-                cc.id,                       -- camp_campers row id (kept as 'id')
-                cam.id AS camper_id,         -- underlying campers.id
-                cc.food_units_per_day,
-                cam.first_name,
-                cam.last_name,
-                cam.dob,
-                cam.emergency_contact
-            FROM camp_campers cc
-            JOIN campers cam ON cam.id = cc.camper_id
-            WHERE cc.camp_id = ?
-            ORDER BY LOWER(cam.last_name), LOWER(cam.first_name);
-            """,
-            (camp_id,),
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-# =========================
-# Parent / Consent services
-# =========================
-def _migrate_parent_campers_fix_users_fk() -> None:
-    """Fix legacy parent_campers referencing 'users_old' and unify parent column to 'parent_id'."""
-    with _dict_cursor(_connect()) as conn_ro:
-        # Check if table exists
-        tbl = conn_ro.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='parent_campers';"
-        ).fetchone()
-        if not tbl:
-            return
-        # Gather columns and foreign keys
-        cols = [r["name"] for r in conn_ro.execute("PRAGMA table_info(parent_campers);").fetchall()]
-        fks = conn_ro.execute("PRAGMA foreign_key_list(parent_campers);").fetchall()
-        fk_tables = [fk[2] if isinstance(fk, tuple) else fk["table"] for fk in fks] if fks else []
-    needs_fk_fix = any(t == "users_old" for t in fk_tables)
-    needs_col_fix = ("parent_user_id" in cols) and ("parent_id" not in cols)
-    if not (needs_fk_fix or needs_col_fix):
-        return
-    with _connect() as conn:
-        conn.execute("PRAGMA foreign_keys=OFF;")
-        conn.execute("BEGIN;")
-        try:
-            conn.execute("ALTER TABLE parent_campers RENAME TO parent_campers_old;")
-            conn.execute(
-                """
-                CREATE TABLE parent_campers (
-                    id INTEGER PRIMARY KEY,
-                    parent_id INTEGER NOT NULL,
-                    camper_id INTEGER NOT NULL,
-                    UNIQUE(parent_id, camper_id),
-                    FOREIGN KEY (parent_id) REFERENCES users(id) ON DELETE CASCADE,
-                    FOREIGN KEY (camper_id) REFERENCES campers(id) ON DELETE CASCADE
-                );
-                """
-            )
-            # Copy data from legacy columns
-            legacy_cols = [r[1] for r in conn.execute("PRAGMA table_info(parent_campers_old);").fetchall()]
-            if "parent_id" in legacy_cols:
-                conn.execute(
-                    "INSERT OR IGNORE INTO parent_campers(parent_id, camper_id) SELECT parent_id, camper_id FROM parent_campers_old;"
-                )
-            elif "parent_user_id" in legacy_cols:
-                conn.execute(
-                    "INSERT OR IGNORE INTO parent_campers(parent_id, camper_id) SELECT parent_user_id, camper_id FROM parent_campers_old;"
-                )
-            conn.execute("DROP TABLE parent_campers_old;")
-            conn.execute("COMMIT;")
-        except Exception:
-            conn.execute("ROLLBACK;")
-            raise
-        finally:
-            conn.execute("PRAGMA foreign_keys=ON;")
-
-
-def _parent_campers_parent_col() -> str:
-    """Return the actual parent column name in parent_campers ('parent_id' or legacy 'parent_user_id')."""
-    try:
-        with _dict_cursor(_connect()) as conn:
-            cols = [r["name"] for r in conn.execute("PRAGMA table_info(parent_campers);").fetchall()]
-        if "parent_id" in cols:
-            return "parent_id"
-        if "parent_user_id" in cols:
-            return "parent_user_id"
-    except Exception:
-        pass
-    return "parent_id"
-
-
+# -------------------------
+# Parent/Consent Features
+# -------------------------
 def add_parent_camper(parent_id: int, camper_id: int) -> bool:
     """Link a parent user to a camper (idempotent)."""
-    _ensure_parent_tables()
-    _migrate_parent_campers_fix_users_fk()
     try:
-        col = _parent_campers_parent_col()
         with _connect() as conn:
             conn.execute(
-                f"INSERT OR IGNORE INTO parent_campers({col}, camper_id) VALUES (?, ?);",
+                "INSERT OR IGNORE INTO parent_campers(parent_id, camper_id) VALUES (?, ?);",
                 (parent_id, camper_id),
             )
         return True
@@ -1098,16 +1228,13 @@ def add_parent_camper(parent_id: int, camper_id: int) -> bool:
 
 def list_parent_campers(parent_id: int) -> List[Dict[str, Any]]:
     """Return campers linked to the given parent user."""
-    _ensure_parent_tables()
-    _migrate_parent_campers_fix_users_fk()
-    col = _parent_campers_parent_col()
     with _dict_cursor(_connect()) as conn:
         rows = conn.execute(
-            f"""
+            """
             SELECT c.id, c.first_name, c.last_name, c.dob, c.emergency_contact
             FROM parent_campers pc
             JOIN campers c ON c.id = pc.camper_id
-            WHERE pc.{col} = ?
+            WHERE pc.parent_id = ?
             ORDER BY LOWER(c.last_name), LOWER(c.first_name);
             """,
             (parent_id,),
@@ -1133,17 +1260,14 @@ def list_camps_for_camper(camper_id: int) -> List[Dict[str, Any]]:
 
 def list_camps_for_parent(parent_id: int) -> List[Dict[str, Any]]:
     """List unique camps associated with any camper linked to a parent."""
-    _ensure_parent_tables()
-    _migrate_parent_campers_fix_users_fk()
-    col = _parent_campers_parent_col()
     with _dict_cursor(_connect()) as conn:
         rows = conn.execute(
-            f"""
+            """
             SELECT DISTINCT c.id, c.name, c.location, c.start_date, c.end_date, c.type
             FROM parent_campers pc
             JOIN camp_campers cc ON cc.camper_id = pc.camper_id
             JOIN camps c ON c.id = cc.camp_id
-            WHERE pc.{col} = ?
+            WHERE pc.parent_id = ?
             ORDER BY c.start_date, c.name;
             """,
             (parent_id,),
@@ -1153,7 +1277,6 @@ def list_camps_for_parent(parent_id: int) -> List[Dict[str, Any]]:
 
 def get_consent_form(parent_id: int, camper_id: int, camp_id: int) -> Optional[Dict[str, Any]]:
     """Get the stored consent row for parent/camper/camp, if any."""
-    _ensure_parent_tables()
     with _dict_cursor(_connect()) as conn:
         row = conn.execute(
             """
@@ -1168,7 +1291,6 @@ def get_consent_form(parent_id: int, camper_id: int, camp_id: int) -> Optional[D
 
 def submit_consent_form(parent_user_id: int, camper_id: int, camp_id: int, consent: bool, notes: str) -> None:
     """Upsert a yes/no consent with optional notes."""
-    _ensure_parent_tables()
     with _connect() as conn:
         conn.execute(
             """
@@ -1200,7 +1322,6 @@ def list_daily_reports_for_camper(camper_id: int) -> List[Dict[str, Any]]:
 
 def submit_feedback(parent_user_id: int, camper_id: int, camp_id: int, feedback: str) -> None:
     """Record free‑text feedback from a parent for a specific camper and camp."""
-    _ensure_parent_tables()
     text = (feedback or "").strip()
     if not text:
         return
@@ -1212,207 +1333,3 @@ def submit_feedback(parent_user_id: int, camper_id: int, camp_id: int, feedback:
             """,
             (parent_user_id, camper_id, camp_id, text),
         )
-
-
-def update_camp_camper_food(camp_camper_id: int, food_units_per_day: int) -> None:
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE camp_campers SET food_units_per_day = ? WHERE id = ?;",
-            (food_units_per_day, camp_camper_id),
-        )
-
-
-def list_camp_activities(camp_id: int) -> List[Dict[str, Any]]:
-    with _dict_cursor(_connect()) as conn:
-        rows = conn.execute(
-            """
-            SELECT id, name, date
-            FROM activities
-            WHERE camp_id = ?
-            ORDER BY date, name;
-            """,
-            (camp_id,),
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-def create_activity(camp_id: int, name: str, date: str) -> bool:
-    try:
-        with _connect() as conn:
-            conn.execute(
-                "INSERT INTO activities(camp_id, name, date) VALUES (?, ?, ?);",
-                (camp_id, name.strip(), date),
-            )
-        return True
-    except sqlite3.IntegrityError:
-        return False
-
-
-def delete_activity(activity_id: int, camp_id: int) -> bool:
-    with _connect() as conn:
-        res = conn.execute(
-            "DELETE FROM activities WHERE id = ? AND camp_id = ?;",
-            (activity_id, camp_id),
-        )
-    return res.rowcount > 0
-
-
-def update_activity(activity_id: int, camp_id: int, name: str, date: str) -> bool:
-    """Update an activity's name and date; returns True if a row was changed."""
-    try:
-        with _connect() as conn:
-            res = conn.execute(
-                """
-                UPDATE activities
-                SET name = ?, date = ?
-                WHERE id = ? AND camp_id = ?;
-                """,
-                (name.strip(), date, activity_id, camp_id),
-            )
-        return res.rowcount > 0
-    except sqlite3.IntegrityError:
-        return False
-
-
-def assign_campers_to_activity(activity_id: int, camper_ids: List[int]) -> None:
-    with _connect() as conn:
-        conn.executemany(
-            "INSERT OR IGNORE INTO camper_activity(activity_id, camper_id) VALUES (?, ?);",
-            [(activity_id, camper_id) for camper_id in camper_ids],
-        )
-
-
-def list_activity_campers(activity_id: int) -> List[Dict[str, Any]]:
-    with _dict_cursor(_connect()) as conn:
-        rows = conn.execute(
-            """
-            SELECT cam.id, cam.first_name, cam.last_name
-            FROM camper_activity ca
-            JOIN campers cam ON cam.id = ca.camper_id
-            WHERE ca.activity_id = ?
-            ORDER BY LOWER(cam.last_name), LOWER(cam.first_name);
-            """,
-            (activity_id,),
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-def list_daily_reports(leader_user_id: int, camp_id: int) -> List[Dict[str, Any]]:
-    with _dict_cursor(_connect()) as conn:
-        rows = conn.execute(
-            """
-            SELECT id, date, notes
-            FROM daily_reports
-            WHERE leader_user_id = ? AND camp_id = ?
-            ORDER BY date DESC;
-            """,
-            (leader_user_id, camp_id),
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-def save_daily_report(leader_user_id: int, camp_id: int, date: str, notes: str) -> None:
-    with _connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO daily_reports(camp_id, leader_user_id, date, notes)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(date, camp_id, leader_user_id) DO UPDATE SET notes = excluded.notes;
-            """,
-            (camp_id, leader_user_id, date, notes.strip()),
-        )
-
-
-def delete_daily_report(leader_user_id: int, camp_id: int, date: str) -> None:
-    with _connect() as conn:
-        conn.execute(
-            "DELETE FROM daily_reports WHERE leader_user_id = ? AND camp_id = ? AND date = ?;",
-            (leader_user_id, camp_id, date),
-        )
-
-
-def import_campers_from_csv(camp_id: int, file_path: str) -> Dict[str, Any]:
-    camp = get_camp(camp_id)
-    if camp is None:
-        raise ValueError("Camp not found")
-
-    path = Path(file_path)
-    if not path.exists():
-        raise FileNotFoundError(file_path)
-
-    with path.open(newline="", encoding="utf-8") as csvfile:
-        reader = csv.DictReader(csvfile)
-        expected_header = {"first_name", "last_name", "dob", "emergency_contact"}
-        if set(reader.fieldnames or []) != expected_header:
-            raise ValueError("CSV header must be exactly first_name,last_name,dob,emergency_contact")
-
-        rows = list(reader)
-
-    unique_rows: Dict[Tuple[str, str, str], Dict[str, str]] = {}
-    duplicates = 0
-    for row in rows:
-        key = (
-            row["first_name"].strip(),
-            row["last_name"].strip(),
-            row["dob"].strip(),
-        )
-        if key in unique_rows:
-            duplicates += 1
-            continue
-        unique_rows[key] = row
-
-    created = 0
-    linked = 0
-    errors: List[str] = []
-
-    def _find_camper(first_name: str, last_name: str, dob: str) -> Optional[int]:
-        with _dict_cursor(_connect()) as conn:
-            row = conn.execute(
-                """
-                SELECT id FROM campers
-                WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) AND dob = ?
-                """,
-                (first_name, last_name, dob),
-            ).fetchone()
-            return row["id"] if row else None
-
-    default_food = int(camp.get("default_food_units_per_camper_per_day", 0) or 0)
-
-    with _connect() as conn:
-        for (first_name, last_name, dob), row in unique_rows.items():
-            if not first_name or not last_name or not dob:
-                errors.append(f"Invalid row missing data: {row}")
-                continue
-
-            camper_id = _find_camper(first_name, last_name, dob)
-            if camper_id is None:
-                cursor = conn.execute(
-                    """
-                    INSERT INTO campers(first_name, last_name, dob, emergency_contact)
-                    VALUES (?, ?, ?, ?);
-                    """,
-                    (first_name, last_name, dob, row["emergency_contact"].strip()),
-                )
-                camper_id = cursor.lastrowid
-                created += 1
-            else:
-                linked += 1
-
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO camp_campers(camp_id, camper_id, food_units_per_day)
-                VALUES (?, ?, ?);
-                """,
-                (camp_id, camper_id, default_food),
-            )
-
-    preview_rows = list(unique_rows.values())[:10]
-    return {
-        "created": created,
-        "linked": linked,
-        "duplicates": duplicates,
-        "errors": errors,
-        "preview": preview_rows,
-    }
-
-

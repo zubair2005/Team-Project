@@ -21,31 +21,36 @@ import datetime as _dt
 
 # construct and return parent dashboard widget
 def build_dashboard(root: tk.Misc, user: Dict[str, Any], on_logout: Callable[[], None]) -> tk.Widget:
-    # Root container with fixed header
-    root_frame = ttk.Frame(root, padding=0)
+    # Main container that will fill the window
+    root_frame = ttk.Frame(root)
+    root_frame.pack(fill=tk.BOTH, expand=True)  # <-- CRITICAL: Make it expand
 
-    header = ttk.Frame(root_frame)
-    header.pack(fill=tk.X, pady=8, padx=10)
-    ttk.Label(header, text=f"Parent Dashboard - {user.get('username')}", font=("Helvetica", 14, "bold")).grid(row=0, column=0, sticky="w")
-    ttk.Frame(header).grid(row=0, column=1, sticky="ew")
-    ttk.Button(header, text="Logout", command=on_logout).grid(row=0, column=2, sticky="e")
-    try:
-        header.grid_columnconfigure(1, weight=1)
-    except Exception:
-        pass
+    # Header (fixed height)
+    header = ttk.Frame(root_frame, height=50)
+    header.pack(fill=tk.X, pady=(0, 5), padx=10)
+    header.pack_propagate(False)  # Keep fixed height
 
-    # Scrollable content below header
-    scroll = ScrollFrame(root_frame)
-    scroll.pack(fill=tk.BOTH, expand=True)
-    container = scroll.content
+    ttk.Label(header, text=f"Parent Dashboard - {user.get('username')}",
+              font=("Helvetica", 14, "bold")).pack(side=tk.LEFT)
 
-    notebook = ttk.Notebook(container)
+    # Spacer to push logout button to right
+    ttk.Frame(header).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+    ttk.Button(header, text="Logout", command=on_logout).pack(side=tk.RIGHT)
+
+    # Notebook that fills remaining space
+    notebook = ttk.Notebook(root_frame)
+    notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+
+    # Build tabs
     _build_schedules_tab(notebook, user)
+
     # Only show Consent tab if any linked camper is under 18
     try:
         campers = list_parent_campers(user["id"])
     except Exception:
         campers = []
+
     def _is_under_18(dob_str: str) -> bool:
         try:
             dob = _dt.datetime.strptime(dob_str, "%Y-%m-%d").date()
@@ -53,15 +58,14 @@ def build_dashboard(root: tk.Misc, user: Dict[str, Any], on_logout: Callable[[],
             years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
             return years < 18
         except Exception:
-            # If DOB invalid/missing, be conservative and hide consent for safety
             return False
+
     if any(_is_under_18(str(c.get("dob") or "")) for c in campers):
         _build_consent_tab(notebook, user)
+
     _build_progress_tab(notebook, user)
-    notebook.pack(fill=tk.BOTH, expand=True)
 
     return root_frame
-
 
 # creates schedule tab showing camps for each camper
 def _build_schedules_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
@@ -76,12 +80,37 @@ def _build_schedules_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
     camper_names = [f"{c['first_name']} {c['last_name']} (ID {c['id']})" for c in campers]
     selected_camper = tk.StringVar(value=camper_names[0])
 
+    # Main container
+    container = ttk.Frame(tab)
+    container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+    # Top frame with combobox
+    top = ttk.Frame(container)
+    top.pack(fill=tk.X, pady=(0, 10))
+    ttk.Label(top, text="Select Camper:").pack(side=tk.LEFT, padx=(0, 10))
+    camper_menu = ttk.Combobox(top, textvariable=selected_camper, values=camper_names, state="readonly", width=40)
+    camper_menu.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+    # Treeview with scrollbars
+    tree_container = ttk.Frame(container)
+    tree_container.pack(fill=tk.BOTH, expand=True)
+
     columns = ("Name", "Location", "Start Date", "End Date", "Type")
-    camp_tree = ttk.Treeview(tab, columns=columns, show="headings", height=8)
+    camp_tree = ttk.Treeview(tree_container, columns=columns, show="headings", height=10)
+
+    # Scrollbars
+    v_scroll = ttk.Scrollbar(tree_container, orient="vertical", command=camp_tree.yview)
+    h_scroll = ttk.Scrollbar(tree_container, orient="horizontal", command=camp_tree.xview)
+    camp_tree.configure(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set)
+
+    # Pack everything
+    camp_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+    h_scroll.pack(side=tk.BOTTOM, fill=tk.X)
+
     for col in columns:
         camp_tree.heading(col, text=col)
-        camp_tree.column(col, width=120)
-    camp_tree.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
+        camp_tree.column(col, width=120, minwidth=100)
 
     def update_camp_list(*_args: Any) -> None:
         for row in camp_tree.get_children():
@@ -96,13 +125,7 @@ def _build_schedules_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
                 values=(camp["name"], camp["location"], camp["start_date"], camp["end_date"], camp["type"]),
             )
 
-    top = ttk.Frame(tab)
-    ttk.Label(top, text="Select Camper:").pack(side=tk.LEFT)
-    camper_menu = ttk.Combobox(top, textvariable=selected_camper, values=camper_names, state="readonly", width=38)
     camper_menu.bind("<<ComboboxSelected>>", lambda _e: update_camp_list())
-    camper_menu.pack(side=tk.LEFT, padx=(5, 0))
-    top.pack(anchor=tk.W)
-
     update_camp_list()
 
 
@@ -118,14 +141,34 @@ def _build_consent_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
         ttk.Label(tab, text="No camps or campers associated with your account.").pack(pady=10)
         return
 
-    canvas = tk.Canvas(tab, highlightthickness=0, bd=0)
-    scrollbar = ttk.Scrollbar(tab, orient="vertical", command=canvas.yview)
-    scroll_frame = ttk.Frame(canvas)
-    scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-    canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
-    canvas.configure(yscrollcommand=scrollbar.set)
+    # Create main container
+    main_container = ttk.Frame(tab)
+    main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+    # Canvas for scrolling
+    canvas = tk.Canvas(main_container, highlightthickness=0, bd=0)
+    scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=canvas.yview)
+    scrollable_frame = ttk.Frame(canvas)
+
+    # Configure canvas
+    scrollable_frame.bind(
+        "<Configure>",
+        lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+    )
+
+    canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+    def on_canvas_configure(event):
+        # Update scroll region and frame width
+        canvas.configure(scrollregion=canvas.bbox("all"))
+        canvas.itemconfig(canvas_window, width=event.width)
+
+    canvas.bind("<Configure>", on_canvas_configure)
+
+    # Pack widgets
     canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    canvas.configure(yscrollcommand=scrollbar.set)
 
     entries: List[Dict[str, Any]] = []
     for camper in campers:
@@ -136,24 +179,45 @@ def _build_consent_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
             existing = get_consent_form(user["id"], camper_id, camp_id)
             consent_var = tk.IntVar(value=existing["consent"] if existing else 0)
             notes_var = tk.StringVar(value=(existing.get("notes", "") if existing else ""))
-            row = ttk.Frame(scroll_frame, padding=5)
-            row.pack(fill=tk.X, pady=2)
-            ttk.Label(row, text=f"Camper: {camper['first_name']} {camper['last_name']} ").grid(row=0, column=0, sticky=tk.W)
-            ttk.Label(row, text=f"Camp: {camp['name']} ({camp['start_date']} – {camp['end_date']}) ").grid(row=0, column=1, sticky=tk.W)
-            ttk.Label(row, text="Consent: ").grid(row=0, column=2, sticky=tk.E)
-            ttk.Radiobutton(row, text="Yes", variable=consent_var, value=1).grid(row=0, column=3)
-            ttk.Radiobutton(row, text="No", variable=consent_var, value=0).grid(row=0, column=4)
-            ttk.Label(row, text="Notes: ").grid(row=1, column=0, sticky=tk.E)
-            notes_entry = ttk.Entry(row, textvariable=notes_var, width=40)
-            notes_entry.grid(row=1, column=1, columnspan=3, sticky=tk.W)
-            entries.append(
-                {
-                    "camper_id": camper_id,
-                    "camp_id": camp_id,
-                    "consent_var": consent_var,
-                    "notes_var": notes_var,
-                }
-            )
+
+            # Each consent item in a framed box
+            frame = ttk.Frame(scrollable_frame, padding=10, relief="groove", borderwidth=1)
+            frame.pack(fill=tk.X, pady=5, padx=5)
+
+            # Camper info
+            ttk.Label(frame, text=f"Camper: {camper['first_name']} {camper['last_name']}",
+                      font=("Helvetica", 10, "bold")).grid(row=0, column=0, sticky=tk.W)
+            ttk.Label(frame, text=f"Camp: {camp['name']} ({camp['start_date']} – {camp['end_date']})").grid(row=0,
+                                                                                                            column=1,
+                                                                                                            sticky=tk.W,
+                                                                                                            padx=(20,
+                                                                                                                  0))
+
+            # Consent buttons
+            ttk.Label(frame, text="Consent:").grid(row=1, column=0, sticky=tk.W, pady=(10, 0))
+            ttk.Radiobutton(frame, text="Yes", variable=consent_var, value=1).grid(row=1, column=1, sticky=tk.W,
+                                                                                   padx=(0, 10))
+            ttk.Radiobutton(frame, text="No", variable=consent_var, value=0).grid(row=1, column=2, sticky=tk.W)
+
+            # Notes
+            ttk.Label(frame, text="Notes:").grid(row=2, column=0, sticky=tk.W, pady=(10, 0))
+            notes_entry = ttk.Entry(frame, textvariable=notes_var, width=50)
+            notes_entry.grid(row=2, column=1, columnspan=2, sticky=tk.W + tk.E, pady=(10, 0), padx=(0, 10))
+
+            # Make columns expand
+            frame.grid_columnconfigure(1, weight=1)
+            frame.grid_columnconfigure(2, weight=0)
+
+            entries.append({
+                "camper_id": camper_id,
+                "camp_id": camp_id,
+                "consent_var": consent_var,
+                "notes_var": notes_var,
+            })
+
+    # Save button at bottom (outside scroll)
+    button_frame = ttk.Frame(tab)
+    button_frame.pack(fill=tk.X, pady=10)
 
     def save_all() -> None:
         for entry in entries:
@@ -168,7 +232,7 @@ def _build_consent_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
             )
         messagebox.showinfo("Consent Saved", "Consent forms have been saved successfully.")
 
-    ttk.Button(tab, text="Save Consent Forms", command=save_all).pack(pady=5)
+    ttk.Button(button_frame, text="Save All Consent Forms", command=save_all).pack(pady=5)
 
 
 # creates the progress and feedback tab

@@ -781,19 +781,6 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         refresh_charts()
         refresh_alerts()
 
-    #def export_analytics_report():
-        ##ath = filedialog.asksaveasfilename(
-             #title="Export Analytics Report",
-             #defaultextension=".txt",
-             #filetypes=[("Text file", "*.txt"), ("All files", "*.*")],
-             #initialfile="analytics_report.txt",
-         #)
-         #if not path:
-    #         return
-    #
-    #     try:
-    #         pass
-
 
     load_camps()
     refresh_topup_history()
