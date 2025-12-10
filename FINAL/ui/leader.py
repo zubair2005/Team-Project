@@ -9,7 +9,6 @@ from typing import Callable, Dict, Optional
 
 from services import (
     assign_campers_to_activity,
-    remove_campers_from_activity,
     assign_leader_to_camp,
     create_activity,
     delete_activity,
@@ -1454,61 +1453,6 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                    command=dialog.destroy, width=10).pack(side=tk.RIGHT, padx=2)
 
 
-    def unassign_campers_from_selected_activity() -> None:
-        selection_assignment = assignments_table.selection()
-        if not selection_assignment:
-            messagebox.showinfo("Activity", "Select an assignment from 'Camps & Pay' tab first.")
-            return
-        assignment_id = int(selection_assignment[0])
-        assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
-        if assignment is None:
-            return
-
-        selection_activity = activities_table.selection()
-        if not selection_activity:
-            messagebox.showinfo("Activity", "Select an activity first.")
-            return
-        index = activities_table.index(selection_activity[0])
-        activities = list_camp_activities(assignment["camp_id"])
-        if index >= len(activities):
-            return
-        activity = activities[index]
-
-        campers = list_activity_campers(activity["id"])
-        if not campers:
-            messagebox.showinfo("Unassign", "No campers assigned to this activity.")
-            return
-
-        dialog = tk.Toplevel(container)
-        dialog.title("Unassign campers from activity")
-        dialog.geometry("420x360")
-
-        ttk.Label(dialog, text=f"Activity: {activity['name']} ({activity['date']})",
-                  style="Muted.TLabel").pack(pady=6)
-        ttk.Label(dialog, text="Select campers to unassign (multi-select)", style="Muted.TLabel").pack()
-
-        listbox = tk.Listbox(dialog, selectmode=tk.MULTIPLE, height=12)
-        listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        for idx, camper in enumerate(campers):
-            listbox.insert(tk.END, f"{camper['first_name']} {camper['last_name']}")
-
-        def do_unassign() -> None:
-            sel = listbox.curselection()
-            if not sel:
-                messagebox.showinfo("Unassign", "Select at least one camper.")
-                return
-            camper_ids = [campers[i]["id"] for i in sel]
-            remove_campers_from_activity(activity["id"], camper_ids)
-            messagebox.showinfo("Unassign", f"Unassigned {len(camper_ids)} camper(s).")
-            dialog.destroy()
-            load_activities()
-
-        btns = ttk.Frame(dialog)
-        btns.pack(fill=tk.X, pady=6)
-        ttk.Button(btns, text="Unassign Selected", command=do_unassign,
-                   style="Danger.TButton" if "Danger.TButton" in dialog.master.tk.call("ttk::style", "map") else "TButton").pack(side=tk.RIGHT, padx=4)
-        ttk.Button(btns, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=4)
-
 
     activities_actions = ttk.Frame(activities_frame)
     activities_actions.pack(fill=tk.X, pady=4)
@@ -1581,7 +1525,6 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     ttk.Button(activities_actions, text="Edit activity", command=edit_selected_activity).pack(side=tk.LEFT, padx=4)
     ttk.Button(activities_actions, text="Delete activity", command=delete_selected_activity).pack(side=tk.LEFT, padx=4)
     ttk.Button(activities_actions, text="Bulk assign campers", command=assign_campers_to_selected_activity).pack(side=tk.LEFT, padx=4)
-    ttk.Button(activities_actions, text="Unassign campers", command=unassign_campers_from_selected_activity).pack(side=tk.LEFT, padx=4)
 
     def refresh_current_assignment_details() -> None:
         # Keep the in-tab selector in sync with assignment selection unless user picked "(None)"
