@@ -10,6 +10,7 @@ from services import (
     list_messages_lines,
     list_users,
     post_message,
+    clear_all_messages,
     update_user_enabled,
     update_user_username,
     count_roles_total,
@@ -429,6 +430,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         post_callback=post_message_wrapper,
         fetch_callback=lambda: list_messages_lines(),
         current_user=user.get("username"),
+        clear_callback=clear_all_messages,
     ).pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
     return root_frame

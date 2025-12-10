@@ -305,6 +305,19 @@ def post_message(sender_user_id: Optional[int], content: str) -> None:
             conn.execute("PRAGMA foreign_keys = ON;")
 
 
+def clear_all_messages() -> int:
+    """Delete all messages from chat. Returns count of deleted messages."""
+    with _connect() as conn:
+        conn.execute("PRAGMA foreign_keys = OFF;")
+        try:
+            cursor = conn.execute("SELECT COUNT(*) FROM messages;")
+            count = cursor.fetchone()[0]
+            conn.execute("DELETE FROM messages;")
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON;")
+    return count
+
+
 def list_messages_lines(limit: int = 100) -> List[str]:
     lines = []
     for row in list_messages(limit):
@@ -754,6 +767,16 @@ def assign_campers_to_activity(activity_id: int, camper_ids: List[int]) -> None:
             "INSERT OR IGNORE INTO camper_activity(activity_id, camper_id) VALUES (?, ?);",
             [(activity_id, camper_id) for camper_id in camper_ids],
         )
+
+
+def unassign_campers_from_activity(activity_id: int, camper_ids: List[int]) -> int:
+    """Remove campers from an activity. Returns count of removed assignments."""
+    with _connect() as conn:
+        cursor = conn.executemany(
+            "DELETE FROM camper_activity WHERE activity_id = ? AND camper_id = ?;",
+            [(activity_id, camper_id) for camper_id in camper_ids],
+        )
+    return len(camper_ids)
 
 
 def list_activity_campers(activity_id: int) -> List[Dict[str, Any]]:
@@ -1241,20 +1264,6 @@ def list_parent_campers(parent_id: int) -> List[Dict[str, Any]]:
         ).fetchall()
         return [dict(r) for r in rows]
 
-
-def get_consent_form(parent_id: int, camper_id: int, camp_id: int) -> Optional[Dict[str, Any]]:
-    """Get the stored consent row for parent/camper/camp, if any."""
-    with _dict_cursor(_connect()) as conn:
-        row = conn.execute(
-            """
-            SELECT parent_id, camper_id, camp_id, consent, notes, updated_at
-            FROM parent_consents
-            WHERE parent_id = ? AND camper_id = ? AND camp_id = ?;
-            """,
-            (parent_id, camper_id, camp_id),
-        ).fetchone()
-        return dict(row) if row else None
-
 # -------------------------
 # Parent/Consent Features
 # -------------------------
@@ -1334,6 +1343,23 @@ def get_consent_form(parent_id: int, camper_id: int, camp_id: int) -> Optional[D
         return dict(row) if row else None
 
 
+def get_all_consents_for_parent(parent_id: int) -> Dict[Tuple[int, int], Dict[str, Any]]:
+    """Get all consent forms for a parent, keyed by (camper_id, camp_id).
+    
+    This is an optimized batch version to avoid N+1 queries.
+    """
+    with _dict_cursor(_connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT parent_id, camper_id, camp_id, consent, notes, updated_at
+            FROM parent_consents
+            WHERE parent_id = ?;
+            """,
+            (parent_id,),
+        ).fetchall()
+    return {(row["camper_id"], row["camp_id"]): dict(row) for row in rows}
+
+
 def submit_consent_form(parent_user_id: int, camper_id: int, camp_id: int, consent: bool, notes: str) -> None:
     """Upsert a yes/no consent with optional notes."""
     with _connect() as conn:
@@ -1390,5 +1416,43 @@ def has_consent_for_camp(camper_id: int, camp_id: int) -> bool:
             LIMIT 1;
             """,
             (camper_id, camp_id),
+        ).fetchone()
+        return row is not None
+
+
+def get_camper_parent_info(camper_id: int) -> Optional[Dict[str, Any]]:
+    """Get parent info for a camper, if any parent is linked."""
+    with _dict_cursor(_connect()) as conn:
+        row = conn.execute(
+            """
+            SELECT u.id, u.username
+            FROM parent_campers pc
+            JOIN users u ON u.id = pc.parent_id
+            WHERE pc.camper_id = ?
+            LIMIT 1;
+            """,
+            (camper_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def is_camper_over_18(dob_str: str) -> bool:
+    """Check if a camper is 18 or older based on DOB string (YYYY-MM-DD)."""
+    import datetime as _dt
+    try:
+        dob = _dt.datetime.strptime(dob_str, "%Y-%m-%d").date()
+        today = _dt.date.today()
+        years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        return years >= 18
+    except Exception:
+        return False
+
+
+def is_parent_linked_to_camper(camper_id: int) -> bool:
+    """Check if any parent is linked to this camper."""
+    with _dict_cursor(_connect()) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM parent_campers WHERE camper_id = ? LIMIT 1;",
+            (camper_id,),
         ).fetchone()
         return row is not None

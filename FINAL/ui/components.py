@@ -8,12 +8,13 @@ from ui.theme import get_palette, tint
 class MessageBoard(tk.Frame):
     def __init__(self, master: tk.Misc, post_callback: Callable[[str], None],
                  fetch_callback: Callable[[], Sequence[str]], current_user: Optional[str] = None,
-                 enable_search: bool = True):
+                 enable_search: bool = True, clear_callback: Optional[Callable[[], int]] = None):
         super().__init__(master)
         self.post_callback = post_callback
         self.fetch_callback = fetch_callback
         self.current_user = current_user
         self.enable_search = enable_search
+        self.clear_callback = clear_callback
 
         palette = get_palette(self)
         self.configure(background=palette["bg"])
@@ -67,6 +68,15 @@ class MessageBoard(tk.Frame):
 
         ttk.Button(entry_frame, text="Refresh", command=self.refresh).pack(side=tk.RIGHT)
         ttk.Button(entry_frame, text="Send", command=self._send).pack(side=tk.RIGHT, padx=4)
+        
+        # Clear chat button (admin only)
+        if self.clear_callback is not None:
+            def _clear_chat() -> None:
+                if messagebox.askyesno("Clear Chat", "Are you sure you want to delete ALL messages? This cannot be undone."):
+                    count = self.clear_callback()
+                    messagebox.showinfo("Chat Cleared", f"Deleted {count} message(s).")
+                    self.refresh()
+            ttk.Button(entry_frame, text="Clear All", command=_clear_chat).pack(side=tk.RIGHT, padx=4)
 
         self.refresh()
 

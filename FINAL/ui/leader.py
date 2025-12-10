@@ -9,6 +9,7 @@ from typing import Callable, Dict, Optional
 
 from services import (
     assign_campers_to_activity,
+    unassign_campers_from_activity,
     assign_leader_to_camp,
     create_activity,
     delete_activity,
@@ -43,6 +44,9 @@ from services import (
     list_daily_reports_for_camper,
     submit_feedback,
     has_consent_for_camp,
+    get_camper_parent_info,
+    is_camper_over_18,
+    is_parent_linked_to_camper,
 )
 
 from ui.components import MessageBoard, Table, ScrollFrame
@@ -908,7 +912,31 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             name = f"{camper.get('first_name','')} {camper.get('last_name','')}".strip()
             ttk.Label(card, text=name, font=("Helvetica", 11, "bold")).pack(pady=(6, 0))
             dob = camper.get("dob") or ""
+            camper_id = camper.get("camper_id")
+            is_over_18 = is_camper_over_18(dob)
+            
             ttk.Label(card, text=f"DOB: {dob}  •  { _calc_age_yrs(dob) }", style="Muted.TLabel").pack()
+            
+            # Over 18 badge
+            if is_over_18:
+                ttk.Label(card, text="🔷 Over 18", font=("Helvetica", 9), foreground="#2563eb").pack()
+            
+            # Parent linked info
+            parent_info = get_camper_parent_info(camper_id) if camper_id else None
+            if is_over_18:
+                ttk.Label(card, text="Parent linked: Above 18", style="Muted.TLabel").pack()
+            elif parent_info:
+                ttk.Label(card, text=f"Parent: {parent_info['username']}", style="Muted.TLabel").pack()
+            else:
+                ttk.Label(card, text="Parent: N/A", style="Muted.TLabel").pack()
+            
+            # Consent status (only for under 18)
+            if not is_over_18 and selected_camp_for_campers and selected_camp_for_campers > 0:
+                has_consent = has_consent_for_camp(camper_id, selected_camp_for_campers)
+                consent_text = "✓ Consent given" if has_consent else "✗ No consent"
+                consent_color = "#16a34a" if has_consent else "#dc2626"
+                ttk.Label(card, text=consent_text, font=("Helvetica", 9), foreground=consent_color).pack()
+            
             ttk.Label(card, text=f"Emergency: {camper.get('emergency_contact','')}", style="Muted.TLabel").pack()
             ttk.Label(card, text=f"Food/day: {camper.get('food_units_per_day',0)}", style="Muted.TLabel").pack()
             # Click to open profile
@@ -1369,8 +1397,13 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                 camper_data = camper_data_by_index[idx]
                 camper_id = camper_data["camper_id"]
                 
-                # Check if camper has consent for this camp
-                if not has_consent_for_camp(camper_id, assignment["camp_id"]):
+                # Get camper DOB to check if over 18
+                camper_info = next((c for c in campers if c["camper_id"] == camper_id), None)
+                camper_dob = camper_info.get("dob", "") if camper_info else ""
+                camper_over_18 = is_camper_over_18(camper_dob)
+                
+                # Over 18 campers don't need consent
+                if not camper_over_18 and not has_consent_for_camp(camper_id, assignment["camp_id"]):
                     no_consent_campers.append(camper_data["name"].replace("✓ ", "").replace(" (already assigned)", ""))
                     continue
                 
@@ -1379,11 +1412,11 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                 if not camper_data["is_assigned"]:
                     newly_selected_count += 1
 
-            # Block if any campers don't have consent
+            # Block if any under-18 campers don't have consent
             if no_consent_campers:
                 messagebox.showerror(
                     "Consent Required",
-                    f"Cannot assign campers without consent forms:\n• " + "\n• ".join(no_consent_campers[:5]) +
+                    f"Cannot assign under-18 campers without consent forms:\n• " + "\n• ".join(no_consent_campers[:5]) +
                     (f"\n...and {len(no_consent_campers) - 5} more" if len(no_consent_campers) > 5 else "")
                 )
                 return
@@ -1453,6 +1486,72 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                    command=dialog.destroy, width=10).pack(side=tk.RIGHT, padx=2)
 
 
+
+    def unassign_campers_from_selected_activity() -> None:
+        selection_assignment = assignments_table.selection()
+        if not selection_assignment:
+            messagebox.showinfo("Activity", "Select an assignment from 'Camps & Pay' tab first.")
+            return
+        assignment_id = int(selection_assignment[0])
+        assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
+        if assignment is None:
+            return
+
+        selection_activity = activities_table.selection()
+        if not selection_activity:
+            messagebox.showinfo("Activity", "Select an activity first.")
+            return
+        index = activities_table.index(selection_activity[0])
+        activities = list_camp_activities(assignment["camp_id"])
+        if index >= len(activities):
+            return
+        activity = activities[index]
+
+        # Get currently assigned campers
+        assigned_campers = list_activity_campers(activity["id"])
+        if not assigned_campers:
+            messagebox.showinfo("Activity", "No campers assigned to this activity.")
+            return
+
+        dialog = tk.Toplevel(container)
+        dialog.title("Unassign campers from activity")
+        dialog.geometry("450x400")
+
+        ttk.Label(dialog, text=f"Activity: {activity['name']} ({activity['date']})",
+                  font=("Helvetica", 10, "bold")).pack(pady=4)
+        ttk.Label(dialog, text="Select campers to unassign (Ctrl/Cmd + click for multiple)",
+                  style="Muted.TLabel", font=("Helvetica", 10, "italic")).pack(pady=4)
+
+        listbox = tk.Listbox(dialog, selectmode=tk.MULTIPLE, height=12)
+        listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        camper_ids_by_index = []
+        for camper in assigned_campers:
+            name = f"{camper['first_name']} {camper['last_name']}"
+            listbox.insert(tk.END, name)
+            camper_ids_by_index.append(camper["id"])
+
+        def do_unassign() -> None:
+            sel_indices = listbox.curselection()
+            if not sel_indices:
+                messagebox.showinfo("Unassign", "Select at least one camper.")
+                return
+            
+            selected_ids = [camper_ids_by_index[idx] for idx in sel_indices]
+            unassign_campers_from_activity(activity["id"], selected_ids)
+            messagebox.showinfo("Success", f"Unassigned {len(selected_ids)} camper(s) from activity.")
+            dialog.destroy()
+            load_activities()
+
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(fill=tk.X, pady=6, padx=10)
+
+        def select_all():
+            listbox.selection_set(0, tk.END)
+
+        ttk.Button(button_frame, text="Select All", command=select_all, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(button_frame, text="Unassign Selected", command=do_unassign, width=15).pack(side=tk.RIGHT, padx=2)
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy, width=10).pack(side=tk.RIGHT, padx=2)
 
     activities_actions = ttk.Frame(activities_frame)
     activities_actions.pack(fill=tk.X, pady=4)
@@ -1525,6 +1624,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     ttk.Button(activities_actions, text="Edit activity", command=edit_selected_activity).pack(side=tk.LEFT, padx=4)
     ttk.Button(activities_actions, text="Delete activity", command=delete_selected_activity).pack(side=tk.LEFT, padx=4)
     ttk.Button(activities_actions, text="Bulk assign campers", command=assign_campers_to_selected_activity).pack(side=tk.LEFT, padx=4)
+    ttk.Button(activities_actions, text="Unassign campers", command=unassign_campers_from_selected_activity).pack(side=tk.LEFT, padx=4)
 
     def refresh_current_assignment_details() -> None:
         # Keep the in-tab selector in sync with assignment selection unless user picked "(None)"
