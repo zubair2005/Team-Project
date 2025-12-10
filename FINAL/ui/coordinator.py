@@ -180,7 +180,13 @@ UK_COUNTIES_CITIES = {
 
 
 def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callable[[], None]) -> tk.Frame:
-    scroll = ScrollFrame(root)
+    # Use a wrapper frame with grid for proper resize
+    root_frame = ttk.Frame(root)
+    root_frame.grid_rowconfigure(0, weight=1)
+    root_frame.grid_columnconfigure(0, weight=1)
+    
+    scroll = ScrollFrame(root_frame)
+    scroll.grid(row=0, column=0, sticky="nsew")
     container = scroll.content
 
     header = ttk.Frame(container)
@@ -814,4 +820,4 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     update_form_buttons()
 
-    return scroll
+    return root_frame

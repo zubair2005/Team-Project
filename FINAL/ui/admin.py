@@ -126,10 +126,13 @@ def _build_parent_camper_tab(container: tk.Widget) -> None:
 
 def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callable[[], None]) -> tk.Frame:
     root_frame = ttk.Frame(root)
+    # Use grid for proper resize behavior
+    root_frame.grid_rowconfigure(1, weight=1)  # Content row expands
+    root_frame.grid_columnconfigure(0, weight=1)  # Column expands
 
     # Fixed header bar (always stays in view and anchored to the right)
     header = ttk.Frame(root_frame)
-    header.pack(fill=tk.X, pady=8, padx=10)
+    header.grid(row=0, column=0, sticky="ew", pady=8, padx=10)
     tk.Label(header, text="Administrator Dashboard", font=("Helvetica", 16, "bold")).grid(row=0, column=0, sticky="w")
     ttk.Frame(header).grid(row=0, column=1, sticky="ew")  # spacer
     ttk.Button(header, text="Logout", command=logout_callback).grid(row=0, column=2, sticky="e")
@@ -140,9 +143,8 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     # Scrollable content below header
     scroll = ScrollFrame(root_frame)
-    scroll.pack(fill=tk.BOTH, expand=True)
+    scroll.grid(row=1, column=0, sticky="nsew")
     container = scroll.content
-
 
     notebook = ttk.Notebook(container)
     notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)

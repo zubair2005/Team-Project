@@ -330,11 +330,12 @@ class ScrollFrame(tk.Frame):
 
         self.content.bind("<Configure>", _on_content_configure)
 
-        # Keep left alignment; allow horizontal scroll by not forcing width
-        def _on_canvas_resize(_evt=None) -> None:
-            # Keep content natural width to enable horizontal scrolling; just ensure anchor
+        # Expand content to fill canvas width (for proper resizing)
+        def _on_canvas_resize(evt=None) -> None:
             try:
-                self.canvas.itemconfigure(self._window_id, anchor="nw")
+                # Make content frame at least as wide as the canvas
+                canvas_width = self.canvas.winfo_width()
+                self.canvas.itemconfigure(self._window_id, width=canvas_width, anchor="nw")
             except Exception:
                 pass
 
