@@ -308,6 +308,7 @@ def seed_initial_data() -> None:
             ("leader1", "leader"),
             ("leader2", "leader"),
             ("leader3", "leader"),
+            ("parent1", "parent"),  # Default parent - always present
         ]
 
         for username, role in baseline_users:

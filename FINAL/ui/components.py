@@ -107,35 +107,50 @@ class MessageBoard(tk.Frame):
 
         if scope == "Date (YYYY-MM-DD)":
             import re
-            # Allow 1 or 2 digits for month/day in input
+            
+            # Check format strictly: YYYY-MM-DD (exactly 4-2-2 or 4-1-1 or 4-1-2 or 4-2-1 digits)
+            # Reject if contains letters or too many digits
             if not re.fullmatch(r"\d{4}-\d{1,2}-\d{1,2}", keyword):
-                messagebox.showerror("Search", "Date must be in format YYYY-MM-DD.")
+                messagebox.showerror("Search", "Invalid date.")
+                return
+            
+            # Check for too many digits in any part
+            parts = keyword.split('-')
+            if len(parts) != 3:
+                messagebox.showerror("Search", "Invalid date.")
+                return
+            
+            year_str, month_str, day_str = parts
+            
+            # Check length limits (year=4, month<=2, day<=2)
+            if len(year_str) != 4 or len(month_str) > 2 or len(day_str) > 2:
+                messagebox.showerror("Search", "Invalid date.")
                 return
 
             try:
-                # Normalize to YYYY-MM-DD format
-                parts = keyword.split('-')
-                if len(parts) != 3:
-                    messagebox.showerror("Validation", "Date must be in format YYYY-MM-DD.")
-                    return
-
-                year, month, day = parts[0], parts[1].zfill(2), parts[2].zfill(2)
+                # Normalize to YYYY-MM-DD format with zero-padding
+                year = year_str
+                month = month_str.zfill(2)
+                day = day_str.zfill(2)
                 normalized = f"{year}-{month}-{day}"
 
-                # This will raise ValueError for invalid dates like 2024-02-30
-                datetime.datetime.strptime(normalized, "%Y-%m-%d")
+                # Validate it's a real date (this will raise ValueError for 8888-77-66)
+                parsed_date = datetime.datetime.strptime(normalized, "%Y-%m-%d").date()
+                
+                # Check if date is in the future
+                today = datetime.date.today()
+                if parsed_date > today:
+                    messagebox.showerror("Search", "Invalid date (cannot be in the future).")
+                    return
+                
                 search_date = normalized  # Use normalized date for searching
 
-            except ValueError as e:
-                if "day is out of range for month" in str(e):
-                    messagebox.showerror("Validation", f"Invalid day for the given month.")
-                elif "month must be in 1..12" in str(e):
-                    messagebox.showerror("Validation", f"Month must be between 1-12.")
-                else:
-                    messagebox.showerror("Validation", f"Date is invalid.")
+            except ValueError:
+                # Any parsing error = invalid date
+                messagebox.showerror("Search", "Invalid date.")
                 return
             except Exception:
-                messagebox.showerror("Validation", f"Date is in invalid format.")
+                messagebox.showerror("Search", "Invalid date.")
                 return
 
         for row in rows:
@@ -301,22 +316,30 @@ class MessageBoard(tk.Frame):
 
 
 class ScrollFrame(tk.Frame):
-    """A reusable scrollable container with both vertical and horizontal scrollbars.
+    """A reusable scrollable container with vertical and optional horizontal scrollbars.
     Place content into the 'content' frame attribute. The outer frame should be packed/gridded.
     """
 
-    def __init__(self, master: tk.Misc):
+    def __init__(self, master: tk.Misc, enable_horizontal: bool = False):
         palette = get_palette(master)
         super().__init__(master, bg=palette["bg"])
         self.canvas = tk.Canvas(self, bg=palette["bg"], highlightthickness=0, bd=0)
         self.vscroll = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        self.hscroll = ttk.Scrollbar(self, orient="horizontal", command=self.canvas.xview)
-        self.canvas.configure(yscrollcommand=self.vscroll.set, xscrollcommand=self.hscroll.set)
-
-        # Layout: canvas fills, scrollbars at right and bottom
-        self.canvas.grid(row=0, column=0, sticky="nsew")
-        self.vscroll.grid(row=0, column=1, sticky="ns")
-        self.hscroll.grid(row=1, column=0, sticky="ew")
+        self.enable_horizontal = enable_horizontal
+        
+        if enable_horizontal:
+            self.hscroll = ttk.Scrollbar(self, orient="horizontal", command=self.canvas.xview)
+            self.canvas.configure(yscrollcommand=self.vscroll.set, xscrollcommand=self.hscroll.set)
+            # Layout: canvas fills, scrollbars at right and bottom
+            self.canvas.grid(row=0, column=0, sticky="nsew")
+            self.vscroll.grid(row=0, column=1, sticky="ns")
+            self.hscroll.grid(row=1, column=0, sticky="ew")
+        else:
+            self.canvas.configure(yscrollcommand=self.vscroll.set)
+            # Layout: canvas fills, scrollbar at right
+            self.canvas.grid(row=0, column=0, sticky="nsew")
+            self.vscroll.grid(row=0, column=1, sticky="ns")
+        
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
@@ -333,9 +356,13 @@ class ScrollFrame(tk.Frame):
         # Expand content to fill canvas width (for proper resizing)
         def _on_canvas_resize(evt=None) -> None:
             try:
-                # Make content frame at least as wide as the canvas
-                canvas_width = self.canvas.winfo_width()
-                self.canvas.itemconfigure(self._window_id, width=canvas_width, anchor="nw")
+                if not self.enable_horizontal:
+                    # Make content frame at least as wide as the canvas (no horizontal scroll)
+                    canvas_width = self.canvas.winfo_width()
+                    self.canvas.itemconfigure(self._window_id, width=canvas_width, anchor="nw")
+                else:
+                    # Allow natural content width (enables horizontal scrolling)
+                    self.canvas.itemconfigure(self._window_id, anchor="nw")
             except Exception:
                 pass
 

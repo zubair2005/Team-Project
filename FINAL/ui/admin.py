@@ -17,6 +17,7 @@ from services import (
     count_roles_enabled,
     # Parent linking + data
     add_parent_camper,
+    remove_parent_camper,
     list_parent_campers,
     list_campers,
 )
@@ -112,16 +113,54 @@ def _build_parent_camper_tab(container: tk.Widget) -> None:
         if dob_txt and _is_adult(dob_txt):
             messagebox.showerror("Not allowed", "This camper is 18 or older. Parent linking is not allowed.")
             return
+        # Check if already linked
+        linked = list_parent_campers(parent_id)
+        if any(c['id'] == camper_id for c in linked):
+            messagebox.showwarning("Already Linked", "Camper already linked to this parent.")
+            return
         ok = add_parent_camper(parent_id, camper_id)
         if not ok:
             messagebox.showerror("Error", "Failed to link parent and camper.")
             return
         messagebox.showinfo("Linked", "Parent and camper have been linked.")
         _refresh_links()
+    def _unlink_parent_camper() -> None:
+        parent_label = parent_var.get()
+        if not parent_label:
+            messagebox.showwarning("Missing selection", "Please select a parent first.")
+            return
+        # Get selected camper from the linked list (tree)
+        selection = tree.selection()
+        if not selection:
+            messagebox.showwarning("Missing selection", "Please select a camper from the linked list to unlink.")
+            return
+        # Get the camper name from the selected tree item
+        item = tree.item(selection[0])
+        camper_name = item['values'][0] if item['values'] else None
+        if not camper_name:
+            return
+        # Find the camper ID by matching the name
+        parent_id = parent_label_to_id.get(parent_label)
+        linked = list_parent_campers(parent_id)
+        camper_to_unlink = next((c for c in linked if f"{c['first_name']} {c['last_name']}" == camper_name), None)
+        if not camper_to_unlink:
+            messagebox.showerror("Error", "Could not find the selected camper.")
+            return
+        # Confirm
+        if not messagebox.askyesno("Unlink", f"Are you sure you want to unlink {camper_name} from {parent_label}?"):
+            return
+        # Unlink
+        ok = remove_parent_camper(parent_id, camper_to_unlink['id'])
+        if not ok:
+            messagebox.showerror("Error", "Failed to unlink parent and camper.")
+            return
+        messagebox.showinfo("Unlinked", "Parent and camper have been unlinked.")
+        _refresh_links()
+    
     link_btn = ttk.Button(selector_frame, text="Link Parent to Camper", command=_link_parent_camper)
     link_btn.grid(row=0, column=4, padx=(10, 0))
-    # Manual refresh button
-    ttk.Button(selector_frame, text="Refresh", command=_reload_options).grid(row=0, column=5, padx=(10, 0))
+    unlink_btn = ttk.Button(selector_frame, text="Unlink Selected", command=_unlink_parent_camper)
+    unlink_btn.grid(row=0, column=5, padx=(10, 0))
     parent_cb.bind("<<ComboboxSelected>>", _refresh_links)
 
 def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callable[[], None]) -> tk.Frame:
@@ -141,8 +180,8 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     except Exception:
         pass
 
-    # Scrollable content below header
-    scroll = ScrollFrame(root_frame)
+    # Scrollable content below header (with horizontal scroll)
+    scroll = ScrollFrame(root_frame, enable_horizontal=True)
     scroll.grid(row=1, column=0, sticky="nsew")
     container = scroll.content
 
@@ -201,6 +240,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     # Users table container with vertical + horizontal scrollbars
     table_container = ttk.Frame(manage_frame)
     table_container.pack(fill=tk.BOTH, expand=True)
+    # Configure grid for proper scrollbar placement
+    table_container.grid_rowconfigure(0, weight=1)
+    table_container.grid_columnconfigure(0, weight=1)
+    
     table = ttk.Treeview(table_container, columns=("Username", "Role", "Enabled"), show="headings", height=12)
     table_scroll = ttk.Scrollbar(table_container, orient="vertical", command=table.yview)
     table_hscroll = ttk.Scrollbar(table_container, orient="horizontal", command=table.xview)
@@ -212,9 +255,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     table.column("Username", width=220, minwidth=160, stretch=True, anchor=tk.W)
     table.column("Role", width=160, minwidth=120, stretch=True, anchor=tk.CENTER)
     table.column("Enabled", width=120, minwidth=80, stretch=True, anchor=tk.CENTER)
-    table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
-    table_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
-    table_hscroll.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 4))
+    # Grid layout - scrollbars inside table area
+    table.grid(row=0, column=0, sticky="nsew")
+    table_scroll.grid(row=0, column=1, sticky="ns")
+    table_hscroll.grid(row=1, column=0, sticky="ew")
 
     # Empty state label (hidden unless no users)
     empty_label = ttk.Label(manage_frame, text="No users to display.", style="Muted.TLabel")
@@ -265,7 +309,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     role_menu = ttk.Combobox(
         form_frame,
         textvariable=role_var,
-        values=["leader", "coordinator","parent"],
+        values=["leader", "parent"],
         state="readonly",
         width=15,
         style="Filled.TCombobox",

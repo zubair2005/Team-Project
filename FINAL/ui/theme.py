@@ -190,9 +190,9 @@ def _tint(hex_color: str, delta: float) -> str:
 
 
 def apply_theme(root: tk.Misc, mode: str = "light") -> None:
-    """Apply a lightweight themed look (light or dark) with ttk only."""
-    mode = "dark" if str(mode).lower().startswith("d") else "light"
-    palette = _PALETTES[mode]
+    """Apply light theme only - dark mode removed."""
+    # Always use light mode, ignore mode parameter
+    palette = _PALETTES["light"]
     style = ttk.Style(root)
     _configure_base_style(style, palette)
 
@@ -208,8 +208,8 @@ def apply_theme(root: tk.Misc, mode: str = "light") -> None:
     root.option_add("*Treeview.font", "Helvetica 10")
     root.option_add("*Treeview.Heading.font", "Helvetica 10 bold")
 
-    # Remember current mode on the root for toggle
-    setattr(root, "_theme_mode", mode)
+    # Always set light mode
+    setattr(root, "_theme_mode", "light")
     # Notify widgets to refresh themselves (e.g., custom canvases)
     try:
         root.event_generate("<<ThemeChanged>>", when="tail")
@@ -218,16 +218,15 @@ def apply_theme(root: tk.Misc, mode: str = "light") -> None:
 
 
 def toggle_theme(root: tk.Misc) -> None:
-    """Toggle between light and dark modes."""
-    current = getattr(root, "_theme_mode", "light")
-    target = "dark" if current == "light" else "light"
-    apply_theme(root, target)
+    """Dark mode removed - does nothing now."""
+    # Always stay in light mode
+    apply_theme(root, "light")
 
 
 def get_palette(root: tk.Misc) -> dict:
-    """Return the active palette for the current theme mode."""
-    mode = getattr(root, "_theme_mode", "light")
-    return _PALETTES.get(mode, _PALETTES["light"])
+    """Return the light palette only - dark mode removed."""
+    # Always return light palette
+    return _PALETTES["light"]
 
 
 def tint(hex_color: str, delta: float) -> str:

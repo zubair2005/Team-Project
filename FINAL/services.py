@@ -193,7 +193,7 @@ def update_user_username(user_id: int, new_username: str) -> bool:
 
 def delete_user(user_id: int) -> bool:
     try:
-        # Defense-in-depth: prevent deleting the sole remaining leader
+        # Defense-in-depth: prevent deleting the sole remaining leader or parent
         with _dict_cursor(_connect()) as conn_ro:
             row = conn_ro.execute("SELECT role FROM users WHERE id = ?;", (user_id,)).fetchone()
             if row is None:
@@ -205,6 +205,13 @@ def delete_user(user_id: int) -> bool:
                 ).fetchone()
                 if int(count_row["c"] or 0) <= 1:
                     # Block deletion if this is the last leader account
+                    return False
+            if role == "parent":
+                count_row = conn_ro.execute(
+                    "SELECT COUNT(*) AS c FROM users WHERE role = 'parent';"
+                ).fetchone()
+                if int(count_row["c"] or 0) <= 1:
+                    # Block deletion if this is the last parent account
                     return False
         with _connect() as conn:
             conn.execute("DELETE FROM users WHERE id = ?;", (user_id,))
@@ -449,11 +456,25 @@ def list_campers() -> List[Dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
+def validate_camper_name(name: str) -> bool:
+    """Check if a camper name is valid (letters and hyphens only, no numbers or other symbols)."""
+    import re
+    # Allow letters (any language), hyphens, apostrophes, and spaces
+    # No numbers or special symbols
+    return bool(re.fullmatch(r"[a-zA-Z\-\s']+", name.strip()))
+
+
 def update_camper(camper_id: int, first_name: str, last_name: str, dob: str, emergency_contact: str) -> bool:
     """Update core camper fields. UI should validate formats prior to calling this.
 
     Returns True if a row was updated.
     """
+    # Validate names
+    if not validate_camper_name(first_name):
+        raise ValueError(f"First name can only contain letters, hyphens, apostrophes, and spaces (no numbers).")
+    if not validate_camper_name(last_name):
+        raise ValueError(f"Last name can only contain letters, hyphens, apostrophes, and spaces (no numbers).")
+    
     try:
         with _connect() as conn:
             res = conn.execute(
@@ -568,15 +589,18 @@ def import_campers_from_csv(camp_id: int, file_path: str) -> Dict[str, Any]:
             ).fetchone()
             return row["id"] if row else None
 
-    def _check_overlapping_camps(camper_id: int, target_camp: Dict) -> bool:
-        """Check if camper is already assigned to a camp with overlapping dates."""
+    def _check_overlapping_camps(camper_id: int, target_camp: Dict) -> Optional[str]:
+        """Check if camper is already assigned to a camp with overlapping dates.
+        
+        Returns the name of the overlapping camp, or None if no overlap.
+        """
         target_start = pd.to_datetime(target_camp["start_date"], format='%Y-%m-%d')
         target_end = pd.to_datetime(target_camp["end_date"], format='%Y-%m-%d')
         
         with _dict_cursor(_connect()) as conn:
             rows = conn.execute(
                 """
-                SELECT c.start_date, c.end_date, c.name
+                SELECT c.start_date, c.end_date, c.name, c.location, c.area
                 FROM camp_campers cc
                 JOIN camps c ON c.id = cc.camp_id
                 WHERE cc.camper_id = ?
@@ -589,8 +613,9 @@ def import_campers_from_csv(camp_id: int, file_path: str) -> Dict[str, Any]:
             existing_end = pd.to_datetime(row["end_date"], format='%Y-%m-%d')
             # Check for overlap: NOT (target_end < existing_start OR target_start > existing_end)
             if not (target_end < existing_start or target_start > existing_end):
-                return True  # Overlap found
-        return False
+                # Return camp info for error message
+                return f"{row['name']} ({row['location']}, {row['area']})"
+        return None
 
     default_food = int(camp.get("default_food_units_per_camper_per_day", 0) or 0)
 
@@ -598,6 +623,14 @@ def import_campers_from_csv(camp_id: int, file_path: str) -> Dict[str, Any]:
         for (first_name, last_name, dob), row in unique_rows.items():
             if not first_name or not last_name or not dob:
                 errors.append(f"Invalid row missing data: {row}")
+                continue
+            
+            # Validate names (letters and hyphens only)
+            if not validate_camper_name(first_name):
+                errors.append(f"Invalid first name '{first_name}' - only letters, hyphens, apostrophes, and spaces allowed")
+                continue
+            if not validate_camper_name(last_name):
+                errors.append(f"Invalid last name '{last_name}' - only letters, hyphens, apostrophes, and spaces allowed")
                 continue
 
             camper_id = _find_camper(first_name, last_name, dob)
@@ -613,9 +646,10 @@ def import_campers_from_csv(camp_id: int, file_path: str) -> Dict[str, Any]:
                 created += 1
             else:
                 # Check for overlapping camp assignments
-                if _check_overlapping_camps(camper_id, camp):
+                overlap_camp_name = _check_overlapping_camps(camper_id, camp)
+                if overlap_camp_name:
                     skipped_overlap += 1
-                    errors.append(f"Skipped {first_name} {last_name}: already in overlapping camp")
+                    errors.append(f"Skipped {first_name} {last_name}: already assigned to {overlap_camp_name} at the same time")
                     continue
                 linked += 1
 
@@ -1273,6 +1307,19 @@ def add_parent_camper(parent_id: int, camper_id: int) -> bool:
         with _connect() as conn:
             conn.execute(
                 "INSERT OR IGNORE INTO parent_campers(parent_id, camper_id) VALUES (?, ?);",
+                (parent_id, camper_id),
+            )
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def remove_parent_camper(parent_id: int, camper_id: int) -> bool:
+    """Unlink a parent from a camper."""
+    try:
+        with _connect() as conn:
+            conn.execute(
+                "DELETE FROM parent_campers WHERE parent_id = ? AND camper_id = ?;",
                 (parent_id, camper_id),
             )
         return True

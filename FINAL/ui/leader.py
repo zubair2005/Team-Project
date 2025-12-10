@@ -33,6 +33,7 @@ from services import (
     normalize_uk_phone_to_formatted,
     update_camper,
     delete_camper,
+    validate_camper_name,
     # Parent/consent features
     list_users,
     list_parent_campers,
@@ -59,7 +60,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     root_frame.grid_rowconfigure(0, weight=1)
     root_frame.grid_columnconfigure(0, weight=1)
     
-    scroll = ScrollFrame(root_frame)
+    scroll = ScrollFrame(root_frame, enable_horizontal=True)
     scroll.grid(row=0, column=0, sticky="nsew")
     container = scroll.content
 
@@ -68,6 +69,8 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     display_name = str(user.get("username") or "Leader")
     tk.Label(header, text=f"{display_name} Dashboard", font=("Helvetica", 16, "bold")).pack(side=tk.LEFT)
+    # Spacer to push logout button to right
+    ttk.Frame(header).pack(side=tk.LEFT, fill=tk.X, expand=True)
     ttk.Button(header, text="Logout", command=logout_callback).pack(side=tk.RIGHT)
 
     notebook = ttk.Notebook(container)
@@ -831,6 +834,13 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                 if not f and not l:
                     messagebox.showerror("Edit camper", "Enter at least a first or last name.")
                     return
+                # Validate names (letters, hyphens, apostrophes, spaces only)
+                if f and not validate_camper_name(f):
+                    messagebox.showerror("Edit camper", "First name can only contain letters, hyphens, apostrophes, and spaces (no numbers or symbols).")
+                    return
+                if l and not validate_camper_name(l):
+                    messagebox.showerror("Edit camper", "Last name can only contain letters, hyphens, apostrophes, and spaces (no numbers or symbols).")
+                    return
                 dob_text = dob_var.get().strip()
                 if not validate_date_format(dob_text, "Date of Birth"):
                     return
@@ -861,9 +871,13 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                 # Persist to DB
                 camper_id = int(camper.get("camper_id"))
                 camp_camper_id = int(camper.get("id"))
-                ok = update_camper(camper_id, f, l, dob_text, normalized)
-                if not ok:
-                    messagebox.showerror("Edit camper", "Failed to update camper details.")
+                try:
+                    ok = update_camper(camper_id, f, l, dob_text, normalized)
+                    if not ok:
+                        messagebox.showerror("Edit camper", "Failed to update camper details.")
+                        return
+                except ValueError as e:
+                    messagebox.showerror("Edit camper", str(e))
                     return
                 try:
                     update_camp_camper_food(camp_camper_id, food_int)
@@ -1107,9 +1121,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             messagebox.showerror("Import", f"Failed to import: {exc}")
             return
         skipped_overlap = result.get('skipped_overlap', 0)
+        overlap_msg = f"\n\nThese campers are already in a different camp with another leader at the same time:\n" + "\n".join(f"• {e}" for e in result['errors'] if 'same time' in e) if skipped_overlap > 0 else ""
         messagebox.showinfo(
             "Import complete",
-            f"Created: {result['created']}\nLinked: {result['linked']}\nDuplicates skipped: {result['duplicates']}\nOverlapping camps skipped: {skipped_overlap}\nErrors: {len(result['errors'])}",
+            f"Created: {result['created']}\nLinked: {result['linked']}\nDuplicates skipped: {result['duplicates']}\nCampers skipped (overlapping camps): {skipped_overlap}\nTotal errors: {len(result['errors'])}{overlap_msg}",
         )
         load_campers_for_selection()
 
@@ -1190,13 +1205,18 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     # Activities table with vertical scrollbar
     activities_container = ttk.Frame(activities_frame)
     activities_container.pack(fill=tk.BOTH, expand=True)
+    # Configure grid for proper scrollbar placement
+    activities_container.grid_rowconfigure(0, weight=1)
+    activities_container.grid_columnconfigure(0, weight=1)
+    
     activities_table = Table(activities_container, columns=["Name", "Date", "No. of Participants"])
     activities_scroll = ttk.Scrollbar(activities_container, orient="vertical", command=activities_table.yview)
     activities_hscroll = ttk.Scrollbar(activities_container, orient="horizontal", command=activities_table.xview)
     activities_table.configure(yscrollcommand=activities_scroll.set, xscrollcommand=activities_hscroll.set)
-    activities_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
-    activities_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
-    activities_hscroll.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 4))
+    # Grid layout - scrollbars inside table area
+    activities_table.grid(row=0, column=0, sticky="nsew")
+    activities_scroll.grid(row=0, column=1, sticky="ns")
+    activities_hscroll.grid(row=1, column=0, sticky="ew")
 
     activities_empty_label = ttk.Label(activities_frame, text="No activities for the selected camp.", style="Muted.TLabel")
     activities_empty_label.pack_forget()
@@ -1657,6 +1677,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     reports_container.pack(fill=tk.BOTH, expand=True)
     reports_table = ttk.Treeview(reports_container, columns=["Date", "Notes"], show="headings",
                                  height=8)  # Added height=8
+    # Configure grid for proper scrollbar placement
+    reports_container.grid_rowconfigure(0, weight=1)
+    reports_container.grid_columnconfigure(0, weight=1)
+    
     reports_scroll = ttk.Scrollbar(reports_container, orient="vertical", command=reports_table.yview)
     reports_hscroll = ttk.Scrollbar(reports_container, orient="horizontal", command=reports_table.xview)
     reports_table.configure(yscrollcommand=reports_scroll.set, xscrollcommand=reports_hscroll.set)
@@ -1667,9 +1691,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     reports_table.column("Date", width=120)
     reports_table.column("Notes", width=400)
 
-    reports_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
-    reports_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
-    reports_hscroll.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 4))
+    # Grid layout - scrollbars inside table area
+    reports_table.grid(row=0, column=0, sticky="nsew")
+    reports_scroll.grid(row=0, column=1, sticky="ns")
+    reports_hscroll.grid(row=1, column=0, sticky="ew")
 
     reports_empty_label = ttk.Label(reports_frame, text="No reports for the selected camp.", style="Muted.TLabel")
     reports_empty_label.pack_forget()
@@ -1989,13 +2014,18 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     stats_table_columns = ["Camp", "Area", "Days", "Campers", "Attending", "Participation %", "Activities", "Food/Day", "Total Food", "Reports"]
     stats_table_container = ttk.Frame(stats_container)
     stats_table_container.pack(fill=tk.BOTH, expand=True)
+    # Configure grid for proper scrollbar placement
+    stats_table_container.grid_rowconfigure(0, weight=1)
+    stats_table_container.grid_columnconfigure(0, weight=1)
+    
     stats_table = Table(stats_table_container, columns=stats_table_columns)
     stats_scroll = ttk.Scrollbar(stats_table_container, orient="vertical", command=stats_table.yview)
     stats_hscroll = ttk.Scrollbar(stats_table_container, orient="horizontal", command=stats_table.xview)
     stats_table.configure(yscrollcommand=stats_scroll.set, xscrollcommand=stats_hscroll.set)
-    stats_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
-    stats_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
-    stats_hscroll.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 4))
+    # Grid layout - scrollbars inside table area
+    stats_table.grid(row=0, column=0, sticky="nsew")
+    stats_scroll.grid(row=0, column=1, sticky="ns")
+    stats_hscroll.grid(row=1, column=0, sticky="ew")
 
     # Align headers/cells
     stats_table.heading("Camp", text="Camp", anchor=tk.W)

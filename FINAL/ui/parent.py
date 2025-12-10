@@ -20,6 +20,17 @@ from ui.components import ScrollFrame
 import datetime as _dt
 
 
+def _is_under_18(dob_str: str) -> bool:
+    """Check if a person is under 18 based on DOB string (YYYY-MM-DD)."""
+    try:
+        dob = _dt.datetime.strptime(dob_str, "%Y-%m-%d").date()
+        today = _dt.date.today()
+        years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        return years < 18
+    except Exception:
+        return False
+
+
 # construct and return parent dashboard widget
 def build_dashboard(root: tk.Misc, user: Dict[str, Any], on_logout: Callable[[], None]) -> tk.Widget:
     # Main container that will fill the window - use grid for better resize behavior
@@ -52,20 +63,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, Any], on_logout: Callable[[],
     except Exception:
         campers = []
 
-    def _is_under_18(dob_str: str) -> bool:
-        try:
-            dob = _dt.datetime.strptime(dob_str, "%Y-%m-%d").date()
-            today = _dt.date.today()
-            years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-            return years < 18
-        except Exception:
-            return False
-
     if any(_is_under_18(str(c.get("dob") or "")) for c in campers):
         _build_consent_tab(notebook, user)
 
     _build_leader_reports_tab(notebook, user)
-    _build_feedback_tab(notebook, user)
 
     return root_frame
 

@@ -21,6 +21,25 @@ from services import (
 from ui.components import BarChart, DualBarChart, MessageBoard, ScrollFrame
 from ui.theme import get_palette, tint
 
+
+def _check_and_notify_shortages(root: tk.Misc) -> None:
+    """Check for food shortages and show popup notification if any exist."""
+    alerts = get_food_shortage_alerts()
+    if not alerts:
+        return  # No shortages, no notification
+    
+    # Build notification message
+    camp_names = [alert["camp_name"] for alert in alerts]
+    
+    if len(camp_names) == 1:
+        message = f"⚠️ Food Shortage Detected\n\nCamp: {camp_names[0]}\n\nFood stock is projected to go below the planned level during this camp's duration.\n\nPlease check the Analytics tab for details and add stock top-ups."
+    else:
+        camps_list = "\n• ".join(camp_names)
+        message = f"⚠️ Food Shortage Detected\n\n{len(camp_names)} camps have food shortages:\n\n• {camps_list}\n\nFood stock is projected to go below the planned level.\n\nPlease check the Analytics tab for details and add stock top-ups."
+    
+    messagebox.showwarning("Food Shortage Alert", message)
+
+
 UK_CITIES = sorted([
     "London",
     "Birmingham", "Coventry", "Wolverhampton",
@@ -185,7 +204,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     root_frame.grid_rowconfigure(0, weight=1)
     root_frame.grid_columnconfigure(0, weight=1)
     
-    scroll = ScrollFrame(root_frame)
+    scroll = ScrollFrame(root_frame, enable_horizontal=True)
     scroll.grid(row=0, column=0, sticky="nsew")
     container = scroll.content
 
@@ -193,6 +212,8 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     header.pack(fill=tk.X, padx=10, pady=8)
 
     tk.Label(header, text="Coordinator Dashboard", font=("Helvetica", 16, "bold")).pack(side=tk.LEFT)
+    # Spacer to push logout button to right
+    ttk.Frame(header).pack(side=tk.LEFT, fill=tk.X, expand=True)
     ttk.Button(header, text="Logout", command=logout_callback).pack(side=tk.RIGHT)
 
     notebook = ttk.Notebook(container)
@@ -212,16 +233,27 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     def save_daily_rate() -> None:
         value = daily_rate_var.get().strip()
-        # Allow decimals (e.g., 15.50)
+        # Allow decimals but enforce max 2 decimal places
         try:
             rate = float(value)
             if rate < 0:
                 messagebox.showerror("Daily pay rate", "Enter a non-negative value.")
                 return
+            
+            # Check if input has more than 2 decimal places
+            if '.' in value:
+                decimal_part = value.split('.')[1]
+                if len(decimal_part) > 2:
+                    messagebox.showerror("Daily pay rate", "Maximum 2 decimal places allowed (e.g., 15.50).")
+                    return
+            
+            # Format to 2 decimal places for storage
+            formatted_value = f"{rate:.2f}"
         except ValueError:
             messagebox.showerror("Daily pay rate", "Enter a valid number (decimals allowed, e.g., 15.50).")
             return
-        set_daily_pay_rate(value)
+        set_daily_pay_rate(formatted_value)
+        daily_rate_var.set(formatted_value)  # Update display with formatted value
         messagebox.showinfo("Daily pay rate", "Updated successfully.")
 
     ttk.Button(pay_frame, text="Save", command=save_daily_rate, style="Primary.TButton").pack(side=tk.LEFT)
@@ -245,9 +277,14 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     # Table container with vertical scrollbar
     table_container = ttk.Frame(camps_frame)
     table_container.pack(fill=tk.BOTH, expand=True)
+    # Configure grid for proper scrollbar placement
+    table_container.grid_rowconfigure(0, weight=1)
+    table_container.grid_columnconfigure(0, weight=1)
+    
     camps_table = ttk.Treeview(table_container, columns=columns, show="headings", height=10)
     camps_scroll = ttk.Scrollbar(table_container, orient="vertical", command=camps_table.yview)
-    camps_table.configure(yscrollcommand=camps_scroll.set)
+    camps_hscroll = ttk.Scrollbar(table_container, orient="horizontal", command=camps_table.xview)
+    camps_table.configure(yscrollcommand=camps_scroll.set, xscrollcommand=camps_hscroll.set)
     for col in columns:
         camps_table.heading(col, text=col)
         camps_table.column(col, width=100)
@@ -274,8 +311,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     camps_table.column("Top-up Δ", anchor=tk.CENTER)
     camps_table.heading("Effective Daily", anchor=tk.CENTER)
     camps_table.column("Effective Daily", anchor=tk.CENTER)
-    camps_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
-    camps_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
+    # Grid layout - scrollbars inside table area
+    camps_table.grid(row=0, column=0, sticky="nsew")
+    camps_scroll.grid(row=0, column=1, sticky="ns")
+    camps_hscroll.grid(row=1, column=0, sticky="ew")
 
     # Empty state label (hidden unless no camps)
     camps_empty_label = ttk.Label(camps_frame, text="No camps available. Create one above.", style="Muted.TLabel")
@@ -288,7 +327,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     name_var = tk.StringVar()
     county_var = tk.StringVar()
     city_var = tk.StringVar()
-    leaders_var = tk.StringVar(value='n/a')
+    leaders_var = tk.StringVar(value='Leader not assigned yet')
     type_var = tk.StringVar(value="day")
     start_var = tk.StringVar()
     end_var = tk.StringVar()
@@ -400,7 +439,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         name_var.set("")
         county_var.set("")
         city_var.set("")
-        leaders_var.set("n/a")
+        leaders_var.set("Leader not assigned yet")
         type_var.set("day")
         start_var.set("")
         end_var.set("")
@@ -819,5 +858,8 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     ).pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
     update_form_buttons()
+
+    # Show shortage notification after dashboard loads (delayed to ensure UI is ready)
+    root_frame.after(500, lambda: _check_and_notify_shortages(root_frame))
 
     return root_frame
