@@ -82,6 +82,7 @@ class MessageBoard(tk.Frame):
         self.after(10, lambda: self.canvas.yview_moveto(1.0))
 
     def _run_search(self) -> None:
+        import datetime
         keyword = (self._search_var.get() if hasattr(self, "_search_var") else "").strip()
         scope = (self._scope_var.get() if hasattr(self, "_scope_var") else "Users")
         if not keyword:
@@ -90,28 +91,61 @@ class MessageBoard(tk.Frame):
         rows = list_messages()
         matches: List[str] = []
         key_lower = keyword.lower()
+
+        # Variable to store validated/normalized date
+        search_date = keyword  # Default to original keyword
+
         if scope == "Date (YYYY-MM-DD)":
             import re
-            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", keyword):
+            # Allow 1 or 2 digits for month/day in input
+            if not re.fullmatch(r"\d{4}-\d{1,2}-\d{1,2}", keyword):
                 messagebox.showerror("Search", "Date must be in format YYYY-MM-DD.")
                 return
+
+            try:
+                # Normalize to YYYY-MM-DD format
+                parts = keyword.split('-')
+                if len(parts) != 3:
+                    messagebox.showerror("Validation", "Date must be in format YYYY-MM-DD.")
+                    return
+
+                year, month, day = parts[0], parts[1].zfill(2), parts[2].zfill(2)
+                normalized = f"{year}-{month}-{day}"
+
+                # This will raise ValueError for invalid dates like 2024-02-30
+                datetime.datetime.strptime(normalized, "%Y-%m-%d")
+                search_date = normalized  # Use normalized date for searching
+
+            except ValueError as e:
+                if "day is out of range for month" in str(e):
+                    messagebox.showerror("Validation", f"Invalid day for the given month.")
+                elif "month must be in 1..12" in str(e):
+                    messagebox.showerror("Validation", f"Month must be between 1-12.")
+                else:
+                    messagebox.showerror("Validation", f"Date is invalid.")
+                return
+            except Exception:
+                messagebox.showerror("Validation", f"Date is in invalid format.")
+                return
+
         for row in rows:
             sender = (row.get("sender_username") or "").strip()
             created = str(row.get("created_at") or "").strip()
             content = (row.get("content") or "").strip()
+
             if scope == "Users":
-                if scope == "Users":
-                    # Allow substring match on usernames (e.g., 'lea' matches 'leader1')
-                    if key_lower in sender.lower():
-                        matches.append(f"[{created}] {sender}: {content}")
+                # Allow substring match on usernames (e.g., 'lea' matches 'leader1')
+                if key_lower in sender.lower():
+                    matches.append(f"[{created}] {sender}: {content}")
             elif scope == "Message Content":
                 if key_lower in content.lower():
                     matches.append(f"[{created}] {sender}: {content}")
-            else:  # Date (YYYY-MM-DD)
+            elif scope == "Date (YYYY-MM-DD)":
                 # Compare date-only part robustly
                 date_part = created.split(" ")[0].split("T")[0] if created else ""
-                if date_part == keyword:
+                if date_part == search_date:  # Use the validated/normalized date
                     matches.append(f"[{created}] {sender}: {content}")
+
         if not matches:
             if scope == "Users":
                 messagebox.showerror("Search", f"No messages found from user '{keyword}'.")
@@ -120,6 +154,7 @@ class MessageBoard(tk.Frame):
             else:
                 messagebox.showerror("Search", f"No messages found for date '{keyword}'.")
             return
+
         # Show results dialog (viewer only in this step)
         dialog = tk.Toplevel(self)
         dialog.title(f"Chat results: {scope} = '{keyword}'")
@@ -161,10 +196,32 @@ class MessageBoard(tk.Frame):
     def _send(self) -> None:
         content = self.entry.get().strip()
         if not content:
+            messagebox.showwarning("Send", "Message cannot be empty.")
             return
-        self.post_callback(content)
-        self.entry.delete(0, tk.END)
-        self.refresh()
+
+        try:
+            # Try to send the message
+            self.post_callback(content)
+            self.entry.delete(0, tk.END)
+
+            # Force refresh immediately
+            self.refresh()
+
+            # Scroll to bottom
+            self.after(50, lambda: self.canvas.yview_moveto(1.0))
+
+        except Exception as e:
+            # Show specific error if it's the users_old issue
+            error_msg = str(e)
+            if "no such table: main.users_old" in error_msg:
+                messagebox.showerror(
+                    "Database Error",
+                    "Cannot send message due to database configuration issue.\n"
+                    "Please contact support."
+                )
+            else:
+                messagebox.showerror("Send Failed", f"Could not send message: {error_msg}")
+
 
     def _parse_line(self, line: str) -> Tuple[str, str, str]:
         created = ""

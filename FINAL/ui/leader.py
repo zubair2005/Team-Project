@@ -1299,34 +1299,130 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             messagebox.showinfo("Activity", "No campers available to assign.")
             return
 
+        # Get already assigned campers for this activity
+        already_assigned = list_activity_campers(activity["id"])
+        already_assigned_ids = {camper["id"] for camper in already_assigned}  # camper_id from campers table
+
         dialog = tk.Toplevel(container)
         dialog.title("Bulk assign campers to activity")
-        dialog.geometry("400x360")
+        dialog.geometry("450x400")  # Slightly taller to show info
 
-        ttk.Label(dialog, text="Select multiple campers (Ctrl/Cmd + click)", style="Muted.TLabel", font=("Helvetica", 10, "italic")).pack(pady=4)
+        # Info label showing already assigned count
+        info_text = f"Activity: {activity['name']} ({activity['date']})"
+        if already_assigned:
+            info_text += f" - {len(already_assigned)} already assigned"
+        ttk.Label(dialog, text=info_text, style="Muted.TLabel").pack(pady=4)
 
-        listbox = tk.Listbox(dialog, selectmode=tk.MULTIPLE)
+        ttk.Label(dialog, text="Select multiple campers (Ctrl/Cmd + click)",
+                  style="Muted.TLabel", font=("Helvetica", 10, "italic")).pack(pady=4)
+
+        listbox = tk.Listbox(dialog, selectmode=tk.MULTIPLE, height=12)
         listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        for camper in campers:
-            listbox.insert(tk.END, f"{camper['first_name']} {camper['last_name']}")
+
+        # Store mapping from listbox index to camper data
+        camper_data_by_index = []
+
+        for idx, camper in enumerate(campers):
+            name = f"{camper['first_name']} {camper['last_name']}"
+            is_assigned = camper["camper_id"] in already_assigned_ids
+
+            # Add checkmark or indicator for already assigned
+            if is_assigned:
+                name = f"✓ {name} (already assigned)"
+
+            listbox.insert(tk.END, name)
+
+            # Store camper data
+            camper_data_by_index.append({
+                "camper_id": camper["camper_id"],
+                "name": name,
+                "is_assigned": is_assigned
+            })
+
+            # Pre-select campers that are NOT already assigned (or select all if you prefer)
+            # Uncomment next line to auto-select unassigned campers:
+            # if not is_assigned:
+            #     listbox.selection_set(idx)
 
         def assign_selected() -> None:
             sel_indices = listbox.curselection()
             if not sel_indices:
                 messagebox.showinfo("Assign", "Select at least one camper.")
                 return
-            camper_ids = [campers[idx]["id"] for idx in sel_indices]
-            try:
-                assign_campers_to_activity(activity["id"], camper_ids)
-                message = f"Assigned {len(camper_ids)} camper(s) to activity."
-            except sqlite3.IntegrityError:
-                message = "Some selected campers aren’t in this camp; they were skipped."
-            messagebox.showinfo("Assign", message)
-            dialog.destroy()
-            load_activities()
 
-        ttk.Button(dialog, text="Assign", command=assign_selected).pack(pady=6)
-        ttk.Button(dialog, text="Cancel", command=dialog.destroy).pack(pady=6)
+            # Get camper_ids from selected indices
+            selected_camper_ids = []
+            newly_selected_count = 0
+
+            for idx in sel_indices:
+                camper_data = camper_data_by_index[idx]
+                camper_id = camper_data["camper_id"]
+                selected_camper_ids.append(camper_id)
+
+                if not camper_data["is_assigned"]:
+                    newly_selected_count += 1
+
+            try:
+                assign_campers_to_activity(activity["id"], selected_camper_ids)
+
+                if newly_selected_count == len(sel_indices):
+                    message = f"Successfully assigned {newly_selected_count} camper(s) to activity."
+                elif newly_selected_count > 0:
+                    message = f"Assigned {newly_selected_count} new camper(s). {len(sel_indices) - newly_selected_count} were already assigned."
+                else:
+                    message = "All selected campers were already assigned to this activity."
+
+                # Show success and refresh
+                messagebox.showinfo("Assign", message)
+                dialog.destroy()
+                load_activities()
+
+            except sqlite3.IntegrityError as e:
+                if "FOREIGN KEY constraint failed" in str(e):
+                    messagebox.showerror("Error", "Database error: Some campers don't exist.")
+                else:
+                    messagebox.showerror("Error", f"Database error: {e}")
+
+        # Button frame
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(fill=tk.X, pady=6, padx=10)
+
+        # Select all button
+        def select_all_unassigned():
+            listbox.selection_clear(0, tk.END)
+            for idx, camper_data in enumerate(camper_data_by_index):
+                if not camper_data["is_assigned"]:
+                    listbox.selection_set(idx)
+
+        ttk.Button(button_frame, text="Select Unassigned",
+                   command=select_all_unassigned, width=14).pack(side=tk.LEFT, padx=2)
+
+        # Select all button
+        def select_all():
+            listbox.selection_set(0, tk.END)
+
+        ttk.Button(button_frame, text="Select All",
+                   command=select_all, width=10).pack(side=tk.LEFT, padx=2)
+
+        # Clear selection button
+        def clear_selection():
+            listbox.selection_clear(0, tk.END)
+
+        ttk.Button(button_frame, text="Clear",
+                   command=clear_selection, width=10).pack(side=tk.LEFT, padx=2)
+
+        # Spacer
+        ttk.Frame(button_frame, width=20).pack(side=tk.LEFT, expand=True)
+
+        # Assign button
+        ttk.Button(button_frame, text="Assign Selected",
+                   command=assign_selected, style="Primary.TButton").pack(side=tk.RIGHT, padx=2)
+
+        # Cancel button
+        ttk.Button(button_frame, text="Cancel",
+                   command=dialog.destroy).pack(side=tk.RIGHT, padx=2)
+
+
 
     activities_actions = ttk.Frame(activities_frame)
     activities_actions.pack(fill=tk.X, pady=4)
@@ -1420,12 +1516,21 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     reports_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
 
     # Reports table with vertical scrollbar
+    # Reports table with proper scrollbars
     reports_container = ttk.Frame(reports_frame)
     reports_container.pack(fill=tk.BOTH, expand=True)
-    reports_table = Table(reports_container, columns=["Date", "Notes"])
+    reports_table = ttk.Treeview(reports_container, columns=["Date", "Notes"], show="headings",
+                                 height=8)  # Added height=8
     reports_scroll = ttk.Scrollbar(reports_container, orient="vertical", command=reports_table.yview)
     reports_hscroll = ttk.Scrollbar(reports_container, orient="horizontal", command=reports_table.xview)
     reports_table.configure(yscrollcommand=reports_scroll.set, xscrollcommand=reports_hscroll.set)
+
+    # Set up headings
+    reports_table.heading("Date", text="Date")
+    reports_table.heading("Notes", text="Notes")
+    reports_table.column("Date", width=120)
+    reports_table.column("Notes", width=400)
+
     reports_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=4)
     reports_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=4)
     reports_hscroll.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 4))
@@ -1434,7 +1539,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     reports_empty_label.pack_forget()
 
     def refresh_daily_reports() -> None:
-        reports_table.load_rows([])
+        # Clear the table
+        for item in reports_table.get_children():
+            reports_table.delete(item)
+
         selection = assignments_table.selection()
         if not selection:
             return
@@ -1442,20 +1550,28 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
         if assignment is None:
             return
+
         reports = list_daily_reports(leader_id, assignment["camp_id"])
-        rows = [(report["date"], report["notes"]) for report in reports]
-        reports_table.load_rows(rows)
-        # Zebra-striping after load
+
+        # Zebra-striping
         palette = get_palette(reports_table)
         reports_table.tag_configure("even", background=palette["surface"])
         reports_table.tag_configure("odd", background=tint(palette["surface"], -0.03))
-        for idx, item_id in enumerate(reports_table.get_children()):
-            reports_table.item(item_id, tags=("odd",) if (idx % 2 == 1) else ("even",))
+
+        for idx, report in enumerate(reports):
+            reports_table.insert(
+                "",
+                tk.END,
+                values=(report["date"], report["notes"]),
+                tags=("odd",) if (idx % 2 == 1) else ("even",)
+            )
+
         # Empty state toggle
-        if not rows:
+        if not reports:
             reports_empty_label.pack(pady=(0, 4), anchor=tk.W)
         else:
             reports_empty_label.pack_forget()
+
 
     def validate_dates_reports(date):
         # Validate date format again here for consistency

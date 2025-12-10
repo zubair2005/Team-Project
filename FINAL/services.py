@@ -293,10 +293,16 @@ def post_message(sender_user_id: Optional[int], content: str) -> None:
     if not cleaned:
         return
     with _connect() as conn:
-        conn.execute(
-            "INSERT INTO messages(sender_user_id, content) VALUES (?, ?);",
-            (sender_user_id, cleaned),
-        )
+        # Disable foreign keys to avoid users_old issue
+        conn.execute("PRAGMA foreign_keys = OFF;")
+        try:
+            conn.execute(
+                "INSERT INTO messages(sender_user_id, content) VALUES (?, ?);",
+                (sender_user_id, cleaned),
+            )
+        finally:
+            # Re-enable foreign keys
+            conn.execute("PRAGMA foreign_keys = ON;")
 
 
 def list_messages_lines(limit: int = 100) -> List[str]:

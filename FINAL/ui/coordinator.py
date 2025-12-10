@@ -382,7 +382,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     def reset_form() -> None:
         nonlocal selected_camp_id
-        city_menu.config(value=UK_CITIES) # resets dropdowns
+        city_menu.config(value=UK_CITIES)  # resets dropdowns
         county_menu.config(value=UK_COUNTIES)
         selected_camp_id = None
         name_var.set("")
@@ -395,6 +395,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         daily_food_var.set("0")
         default_food_var.set("0")
         update_form_buttons()
+
 
     def select_camp() -> None:
         nonlocal selected_camp_id
@@ -795,5 +796,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         fetch_callback=lambda: list_messages_lines(),
         current_user=user.get("username"),
     ).pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+    update_form_buttons()
 
     return scroll
