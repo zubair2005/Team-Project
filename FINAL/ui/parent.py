@@ -273,7 +273,7 @@ def _build_leader_reports_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> N
     container.grid_rowconfigure(3, weight=0)  # Detail label (fixed)
     container.grid_rowconfigure(4, weight=1)  # Detail pane (less space)
     container.grid_columnconfigure(0, weight=1)
-
+    
     # Top row with selector
     top_row = ttk.Frame(container)
     top_row.grid(row=0, column=0, sticky="ew", pady=(0, 10))

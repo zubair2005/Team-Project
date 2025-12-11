@@ -876,6 +876,12 @@ def delete_daily_report(leader_user_id: int, camp_id: int, date: str) -> None:
 # Stock Management
 # -------------------------
 def add_stock_topup(camp_id: int, delta_daily_units: int) -> None:
+    # Guard against unrealistic values that would overflow downstream
+    # calculations or SQLite's INTEGER range. The UI enforces the same
+    # bounds, but we keep a hard limit here as well.
+    if delta_daily_units < -100000 or delta_daily_units > 100000:
+        raise ValueError("Delta must be between -100000 and 100000 units per day.")
+
     with _connect() as conn:
         conn.execute(
             "INSERT INTO stock_topups(camp_id, delta_daily_units) VALUES (?, ?);",

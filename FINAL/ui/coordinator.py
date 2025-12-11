@@ -747,20 +747,38 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                 "Top-up", "Select a camp from the Stock Management camp list first."
             )
             return
-        if not topup_var.get().strip() or topup_var.get().strip() == "0":
+        raw = topup_var.get().strip()
+        if not raw or raw == "0":
             messagebox.showwarning("Top-up", "Enter a non-zero integer delta.")
             return
         try:
-            delta = int(topup_var.get().strip())
+            delta = int(raw)
         except ValueError:
             messagebox.showerror("Top-up", "Delta must be an integer (can be negative).")
             return
+        # Enforce practical bounds to avoid overflow and unrealistic values
+        MIN_DELTA, MAX_DELTA = -100000, 100000
+        if delta < MIN_DELTA or delta > MAX_DELTA:
+            messagebox.showerror(
+                "Top-up",
+                f"Delta must be between {MIN_DELTA} and {MAX_DELTA} units per day.",
+            )
+            return
+
         camp_id = int(selection[0])
         # Update selected camp indicator to reflect the stock selection
         item = stock_camps_table.item(selection[0])
         vals = dict(zip(columns, item["values"]))
         selected_camp_var.set(f"Selected camp: {vals.get('Name', 'Unknown')}")
-        add_stock_topup(camp_id, delta)
+
+        try:
+            add_stock_topup(camp_id, delta)
+        except ValueError as exc:
+            # Should not normally occur if UI validation is in sync, but
+            # show a clear message if the service layer rejects the value.
+            messagebox.showerror("Top-up", str(exc))
+            return
+
         load_camps()
         topup_var.set("0")
         refresh_topup_history()
