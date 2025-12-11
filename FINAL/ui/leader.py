@@ -55,11 +55,11 @@ from ui.theme import get_palette, tint
 
 
 def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callable[[], None]) -> tk.Frame:
-    # Use a wrapper frame with grid for proper resize
+    # Use a wrapper frame with grid for proper resize - ensures full-screen expansion
     root_frame = ttk.Frame(root)
-    # Row 0: fixed header, Row 1: scrollable content
-    root_frame.grid_rowconfigure(1, weight=1)
-    root_frame.grid_columnconfigure(0, weight=1)
+    # Row 0: fixed header, Row 1: scrollable content (expands to fill available space)
+    root_frame.grid_rowconfigure(1, weight=1)  # Content row expands vertically
+    root_frame.grid_columnconfigure(0, weight=1)  # Column expands horizontally
 
     # Fixed header bar – always visible, anchored to window width
     header = ttk.Frame(root_frame)
@@ -80,6 +80,8 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     notebook = ttk.Notebook(container)
     notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+    # Ensure notebook expands its tabs to fill available space
+    container.pack_propagate(True)
 
     leader_id = user.get("id")
 
@@ -123,10 +125,16 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     # ========== Tab 1: Camps & Pay ==========
     tab_camps = tk.Frame(notebook)
     notebook.add(tab_camps, text="Camps & Pay")
+    # Configure tab to expand properly
+    tab_camps.grid_rowconfigure(0, weight=0)  # Pay label (fixed)
+    tab_camps.grid_rowconfigure(1, weight=0)  # Pay frame (fixed)
+    tab_camps.grid_rowconfigure(2, weight=0)  # Assignments label (fixed)
+    tab_camps.grid_rowconfigure(3, weight=1)  # Assignments frame expands
+    tab_camps.grid_columnconfigure(0, weight=1)
 
-    ttk.Label(tab_camps, text="Pay summary", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, padx=10, pady=(6, 2))
+    ttk.Label(tab_camps, text="Pay summary", font=("Helvetica", 12, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=(6, 2))
     pay_frame = ttk.Frame(tab_camps, style="Card.TFrame", padding=10)
-    pay_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
+    pay_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
 
     total_pay_var = tk.StringVar(value="Total: 0.00")
     ttk.Label(pay_frame, textvariable=total_pay_var, font=("Helvetica", 13, "bold")).pack(side=tk.LEFT, padx=6)
@@ -150,7 +158,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         per_camp_text.config(state="disabled")
 
     assignments_frame = tk.LabelFrame(tab_camps, text="My camp assignments", padx=10, pady=10)
-    assignments_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+    assignments_frame.grid(row=3, column=0, sticky="nsew", padx=10, pady=6)
 
     columns = ("Camp", "County", "City", "Start", "End")
     assignments_table = ttk.Treeview(assignments_frame, columns=columns, show="headings")
@@ -368,10 +376,15 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     # ========== Tab 2: Campers ==========
     tab_campers = tk.Frame(notebook)
     notebook.add(tab_campers, text="Campers")
+    # Configure tab to expand properly
+    tab_campers.grid_rowconfigure(0, weight=0)  # Selector row (fixed)
+    tab_campers.grid_rowconfigure(1, weight=0)  # Controls row (fixed)
+    tab_campers.grid_rowconfigure(2, weight=1)  # Gallery expands
+    tab_campers.grid_columnconfigure(0, weight=1)
 
     # In-tab camp selector (preferred over relying on 'Camps & Pay' selection)
     selector_row = ttk.Frame(tab_campers)
-    selector_row.pack(fill=tk.X, padx=10, pady=(8, 2))
+    selector_row.grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 2))
     ttk.Label(selector_row, text="Camp:", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 6))
     camp_selector_var = tk.StringVar(value="(None)")
     camp_selector = ttk.Combobox(selector_row, textvariable=camp_selector_var, state="readonly", width=40, style="Filled.TCombobox", exportselection=False)
@@ -436,7 +449,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     # Sort + Search controls
     controls_row = ttk.Frame(tab_campers)
-    controls_row.pack(fill=tk.X, padx=10, pady=(2, 6))
+    controls_row.grid(row=1, column=0, sticky="ew", padx=10, pady=(2, 6))
     # Sort
     ttk.Label(controls_row, text="Sort:", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 6))
     sort_var = tk.StringVar(value="Alphabetical A–Z")
@@ -556,7 +569,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     notebook.bind("<<NotebookTabChanged>>", _on_tab_changed_clear_search, add="+")
 
     campers_frame = tk.LabelFrame(tab_campers, text="Campers in selected camp", padx=10, pady=10)
-    campers_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+    campers_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=6)
 
     # Gallery container (scrollable)
     gallery_outer = ttk.Frame(campers_frame)
@@ -1193,11 +1206,15 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     # ========== Tab 3: Activities ==========
     tab_activities = tk.Frame(notebook)
     notebook.add(tab_activities, text="Activities")
+    # Configure tab to expand properly
+    tab_activities.grid_rowconfigure(0, weight=0)  # Info label (fixed)
+    tab_activities.grid_rowconfigure(1, weight=1)  # Activities frame expands
+    tab_activities.grid_columnconfigure(0, weight=1)
 
-    tk.Label(tab_activities, text="Select an assignment from 'Camps & Pay' tab first", fg="#666666", font=("Helvetica", 10, "italic")).pack(pady=4)
+    tk.Label(tab_activities, text="Select an assignment from 'Camps & Pay' tab first", fg="#666666", font=("Helvetica", 10, "italic")).grid(row=0, column=0, pady=4)
 
     activities_frame = tk.LabelFrame(tab_activities, text="Activities for selected camp", padx=10, pady=10)
-    activities_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+    activities_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=6)
 
     # Activities table - page-level scrolling only
     activities_table = Table(activities_frame, columns=["Name", "Date", "No. of Participants"])
@@ -1650,11 +1667,15 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     # ========== Tab 4: Daily Reports ==========
     tab_reports = tk.Frame(notebook)
     notebook.add(tab_reports, text="Daily Reports")
+    # Configure tab to expand properly
+    tab_reports.grid_rowconfigure(0, weight=0)  # Info label (fixed)
+    tab_reports.grid_rowconfigure(1, weight=1)  # Reports frame expands
+    tab_reports.grid_columnconfigure(0, weight=1)
 
-    tk.Label(tab_reports, text="Select an assignment from 'Camps & Pay' tab first", fg="#666666", font=("Helvetica", 10, "italic")).pack(pady=4)
+    tk.Label(tab_reports, text="Select an assignment from 'Camps & Pay' tab first", fg="#666666", font=("Helvetica", 10, "italic")).grid(row=0, column=0, pady=4)
 
     reports_frame = tk.LabelFrame(tab_reports, text="Daily reports for selected camp", padx=10, pady=10)
-    reports_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+    reports_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=6)
 
     # Reports table - page-level scrolling only
     reports_table = ttk.Treeview(reports_frame, columns=["Date", "Notes"], show="headings")
@@ -1972,11 +1993,17 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     # ========== Tab 5: Statistics ==========
     tab_stats = tk.Frame(notebook)
     notebook.add(tab_stats, text="Statistics")
+    # Configure tab to expand properly
+    tab_stats.grid_rowconfigure(0, weight=0)  # Title label (fixed)
+    tab_stats.grid_rowconfigure(1, weight=1)  # Stats container expands
+    tab_stats.grid_rowconfigure(2, weight=0)  # Summary label (fixed)
+    tab_stats.grid_rowconfigure(3, weight=0)  # Summary text (fixed)
+    tab_stats.grid_columnconfigure(0, weight=1)
 
-    tk.Label(tab_stats, text="Statistics & Trends for All Camps Led", font=("Helvetica", 14, "bold")).pack(pady=8)
+    tk.Label(tab_stats, text="Statistics & Trends for All Camps Led", font=("Helvetica", 14, "bold")).grid(row=0, column=0, pady=8)
 
     stats_container = ttk.Frame(tab_stats)
-    stats_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+    stats_container.grid(row=1, column=0, sticky="nsew", padx=10, pady=6)
 
     # Stats table - page-level scrolling only
     stats_table_columns = ["Camp", "Area", "Days", "Campers", "Attending", "Participation %", "Activities", "Food/Day", "Total Food", "Reports"]
@@ -2025,9 +2052,9 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             stats_empty_label.pack_forget()
 
     # Summary panel
-    ttk.Label(tab_stats, text="Summary across all camps", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, padx=10, pady=(6, 2))
+    ttk.Label(tab_stats, text="Summary across all camps", font=("Helvetica", 12, "bold")).grid(row=2, column=0, sticky="w", padx=10, pady=(6, 2))
     summary_frame = ttk.Frame(tab_stats, style="Card.TFrame", padding=10)
-    summary_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
+    summary_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
 
     summary_text = tk.Text(summary_frame, height=6, state="disabled")
     summary_text.pack(fill=tk.X, pady=4)
@@ -2067,13 +2094,16 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     # ========== Tab 6: Chat ==========
     tab_chat = tk.Frame(notebook)
     notebook.add(tab_chat, text="Chat")
+    # Configure tab to expand properly
+    tab_chat.grid_rowconfigure(0, weight=1)  # Message board expands
+    tab_chat.grid_columnconfigure(0, weight=1)
 
     MessageBoard(
         tab_chat,
         post_callback=lambda content: post_message(leader_id, content),
         fetch_callback=lambda: list_messages_lines(),
         current_user=user.get("username"),
-    ).pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    ).grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
     return root_frame
 

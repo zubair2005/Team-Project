@@ -356,13 +356,16 @@ class ScrollFrame(tk.Frame):
         # Expand content to fill canvas width (for proper resizing)
         def _on_canvas_resize(evt=None) -> None:
             try:
+                canvas_width = self.canvas.winfo_width()
+                canvas_height = self.canvas.winfo_height()
                 if not self.enable_horizontal:
                     # Make content frame at least as wide as the canvas (no horizontal scroll)
-                    canvas_width = self.canvas.winfo_width()
                     self.canvas.itemconfigure(self._window_id, width=canvas_width, anchor="nw")
                 else:
-                    # Allow natural content width (enables horizontal scrolling)
-                    self.canvas.itemconfigure(self._window_id, anchor="nw")
+                    # With horizontal scroll, expand content to at least canvas size
+                    # This allows content to grow beyond canvas (scroll) or fill it (expand)
+                    content_width = max(canvas_width, self.content.winfo_reqwidth())
+                    self.canvas.itemconfigure(self._window_id, width=content_width, anchor="nw")
             except Exception:
                 pass
 

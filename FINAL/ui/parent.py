@@ -33,10 +33,10 @@ def _is_under_18(dob_str: str) -> bool:
 
 # construct and return parent dashboard widget
 def build_dashboard(root: tk.Misc, user: Dict[str, Any], on_logout: Callable[[], None]) -> tk.Widget:
-    # Main container that will fill the window - use grid for better resize behavior
+    # Main container that will fill the window - use grid for better resize behavior - ensures full-screen expansion
     root_frame = ttk.Frame(root)
-    root_frame.grid_rowconfigure(1, weight=1)  # Content row expands
-    root_frame.grid_columnconfigure(0, weight=1)  # Column expands
+    root_frame.grid_rowconfigure(1, weight=1)  # Content row expands vertically
+    root_frame.grid_columnconfigure(0, weight=1)  # Column expands horizontally
 
     # Fixed header bar (always stays in view and anchored to the right)
     header = ttk.Frame(root_frame)
@@ -56,6 +56,8 @@ def build_dashboard(root: tk.Misc, user: Dict[str, Any], on_logout: Callable[[],
     # Notebook that fills remaining space
     notebook = ttk.Notebook(container)
     notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+    # Ensure notebook expands its tabs to fill available space
+    container.pack_propagate(True)
 
     # Build tabs
     _build_schedules_tab(notebook, user)
@@ -77,10 +79,13 @@ def build_dashboard(root: tk.Misc, user: Dict[str, Any], on_logout: Callable[[],
 def _build_schedules_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
     tab = ttk.Frame(notebook)
     notebook.add(tab, text="Schedules")
+    # Configure tab to expand properly
+    tab.grid_rowconfigure(0, weight=1)
+    tab.grid_columnconfigure(0, weight=1)
 
     campers = list_parent_campers(user["id"])
     if not campers:
-        ttk.Label(tab, text="No campers linked to your account.").pack(pady=10)
+        ttk.Label(tab, text="No campers linked to your account.").grid(row=0, column=0, pady=10)
         return
 
     camper_names = [f"{c['first_name']} {c['last_name']}" for c in campers]
@@ -88,11 +93,14 @@ def _build_schedules_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
 
     # Main container
     container = ttk.Frame(tab)
-    container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    container.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+    # Configure container to expand
+    container.grid_rowconfigure(1, weight=1)  # Table row expands
+    container.grid_columnconfigure(0, weight=1)
 
     # Top frame with combobox
     top = ttk.Frame(container)
-    top.pack(fill=tk.X, pady=(0, 10))
+    top.grid(row=0, column=0, sticky="ew", pady=(0, 10))
     ttk.Label(top, text="Select Camper:").pack(side=tk.LEFT, padx=(0, 10))
     camper_menu = ttk.Combobox(top, textvariable=selected_camper, values=camper_names, state="readonly", width=40)
     camper_menu.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -100,7 +108,7 @@ def _build_schedules_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
     # Camps table - page-level scrolling only
     columns = ("Name", "Location", "Start Date", "End Date", "Type")
     camp_tree = ttk.Treeview(container, columns=columns, show="headings")
-    camp_tree.pack(fill=tk.BOTH, expand=True)
+    camp_tree.grid(row=1, column=0, sticky="nsew")
 
     for col in columns:
         camp_tree.heading(col, text=col)
@@ -244,21 +252,29 @@ def _build_consent_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
 def _build_leader_reports_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> None:
     tab = ttk.Frame(notebook)
     notebook.add(tab, text="Leader Reports")
+    # Configure tab to expand properly
+    tab.grid_rowconfigure(0, weight=1)
+    tab.grid_columnconfigure(0, weight=1)
 
     campers = list_parent_campers(user["id"])
     if not campers:
-        ttk.Label(tab, text="No campers linked to your account.").pack(pady=10)
+        ttk.Label(tab, text="No campers linked to your account.").grid(row=0, column=0, pady=10)
         return
 
     camper_names = [f"{c['first_name']} {c['last_name']}" for c in campers]
     
     # Main container
     container = ttk.Frame(tab)
-    container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    container.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+    # Configure container to expand
+    container.grid_rowconfigure(0, weight=0)  # Top row (fixed)
+    container.grid_rowconfigure(1, weight=0)  # Description label (fixed)
+    container.grid_rowconfigure(2, weight=1)  # Reports table expands
+    container.grid_columnconfigure(0, weight=1)
     
     # Top row with selector
     top_row = ttk.Frame(container)
-    top_row.pack(fill=tk.X, pady=(0, 10))
+    top_row.grid(row=0, column=0, sticky="ew", pady=(0, 10))
     ttk.Label(top_row, text="Select Camper:").pack(side=tk.LEFT)
     selected_camper = tk.StringVar(value=camper_names[0])
     camper_menu = ttk.Combobox(top_row, textvariable=selected_camper, values=camper_names, state="readonly", width=38)
@@ -266,11 +282,11 @@ def _build_leader_reports_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> N
 
     # Description label
     ttk.Label(container, text="Daily reports submitted by leaders for your camper's camps:",
-              style="Muted.TLabel").pack(anchor=tk.W, pady=(0, 5))
+              style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(0, 5))
 
     # Reports table - page-level scrolling only
     reports_tree = ttk.Treeview(container, columns=("Date", "Leader", "Notes"), show="headings")
-    reports_tree.pack(fill=tk.BOTH, expand=True)
+    reports_tree.grid(row=2, column=0, sticky="nsew")
     
     for col, width in [("Date", 100), ("Leader", 120), ("Notes", 500)]:
         reports_tree.heading(col, text=col)

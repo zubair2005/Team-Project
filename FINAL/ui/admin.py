@@ -36,8 +36,13 @@ def _build_parent_camper_tab(container: tk.Widget) -> None:
         today = _dt.date.today()
         years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
         return years >= 18
+    # Configure container for grid layout
+    container.grid_rowconfigure(0, weight=0)  # Selector (fixed)
+    container.grid_rowconfigure(1, weight=1)  # List frame (expands)
+    container.grid_columnconfigure(0, weight=1)
+    
     selector_frame = ttk.Frame(container)
-    selector_frame.pack(fill=tk.X, padx=10, pady=10)
+    selector_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
     ttk.Label(selector_frame, text="Parent:").grid(row=0, column=0, sticky="w", padx=(0, 5))
     ttk.Label(selector_frame, text="Camper:").grid(row=0, column=2, sticky="w", padx=(10, 5))
     # Mutable mappings so reload can update them in-place
@@ -78,7 +83,7 @@ def _build_parent_camper_tab(container: tk.Widget) -> None:
     parent_cb.bind("<Button-1>", lambda _e: _reload_options())
     camper_cb.bind("<Button-1>", lambda _e: _reload_options())
     list_frame = ttk.Frame(container)
-    list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+    list_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
     ttk.Label(list_frame, text="Linked campers for selected parent:").pack(anchor=tk.W)
     columns = ("camper",)
     tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=8)
@@ -165,9 +170,9 @@ def _build_parent_camper_tab(container: tk.Widget) -> None:
 
 def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callable[[], None]) -> tk.Frame:
     root_frame = ttk.Frame(root)
-    # Use grid for proper resize behavior
-    root_frame.grid_rowconfigure(1, weight=1)  # Content row expands
-    root_frame.grid_columnconfigure(0, weight=1)  # Column expands
+    # Use grid for proper resize behavior - ensures full-screen expansion
+    root_frame.grid_rowconfigure(1, weight=1)  # Content row expands vertically
+    root_frame.grid_columnconfigure(0, weight=1)  # Column expands horizontally
 
     # Fixed header bar (always stays in view and anchored to the right)
     header = ttk.Frame(root_frame)
@@ -187,14 +192,19 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     notebook = ttk.Notebook(container)
     notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+    # Ensure notebook expands its tabs to fill available space
+    container.pack_propagate(True)
 
     # ========== Tab 1: User Management ==========
     tab_users = tk.Frame(notebook)
     notebook.add(tab_users, text="User Management")
+    # Configure tab to expand properly
+    tab_users.grid_rowconfigure(1, weight=1)  # Manage frame expands
+    tab_users.grid_columnconfigure(0, weight=1)
 
-    ttk.Label(tab_users, text="User Accounts", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, padx=10, pady=(10, 2))
+    ttk.Label(tab_users, text="User Accounts", font=("Helvetica", 12, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=(10, 2))
     manage_frame = ttk.Frame(tab_users, style="Card.TFrame", padding=10)
-    manage_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+    manage_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
     # Username search (exact, case-insensitive)
     search_row = ttk.Frame(manage_frame)
@@ -450,11 +460,17 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     # ========== Tab 2: Parent–Camper Links ==========
     tab_links = tk.Frame(notebook)
     notebook.add(tab_links, text="Parent–Camper Links")
+    # Configure tab to expand properly
+    tab_links.grid_rowconfigure(0, weight=1)  # Content expands
+    tab_links.grid_columnconfigure(0, weight=1)
     _build_parent_camper_tab(tab_links)
 
     # ========== Tab 3: Chat ==========
     tab_chat = tk.Frame(notebook)
     notebook.add(tab_chat, text="Chat")
+    # Configure tab to expand properly
+    tab_chat.grid_rowconfigure(0, weight=1)  # Message board expands
+    tab_chat.grid_columnconfigure(0, weight=1)
 
     def post_message_wrapper(content: str) -> None:
         post_message(user.get("id"), content)
@@ -465,7 +481,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         fetch_callback=lambda: list_messages_lines(),
         current_user=user.get("username"),
         clear_callback=clear_all_messages,
-    ).pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    ).grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
     return root_frame
 

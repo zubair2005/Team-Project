@@ -199,11 +199,11 @@ UK_COUNTIES_CITIES = {
 
 
 def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callable[[], None]) -> tk.Frame:
-    # Use a wrapper frame with grid for proper resize
+    # Use a wrapper frame with grid for proper resize - ensures full-screen expansion
     root_frame = ttk.Frame(root)
-    # Row 0: fixed header, Row 1: scrollable content
-    root_frame.grid_rowconfigure(1, weight=1)
-    root_frame.grid_columnconfigure(0, weight=1)
+    # Row 0: fixed header, Row 1: scrollable content (expands to fill available space)
+    root_frame.grid_rowconfigure(1, weight=1)  # Content row expands vertically
+    root_frame.grid_columnconfigure(0, weight=1)  # Column expands horizontally
 
     # Fixed header bar – always visible, anchored to window width
     header = ttk.Frame(root_frame)
@@ -223,15 +223,26 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     notebook = ttk.Notebook(container)
     notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+    # Ensure notebook expands its tabs to fill available space
+    container.pack_propagate(True)
+    
+    # Track if shortage notification has been shown for this session
+    shortage_notification_shown = {"shown": False}
 
     # ========== Tab 1: Camps ==========
     tab_camps = tk.Frame(notebook)
     notebook.add(tab_camps, text="Camps")
+    # Configure grid for better space allocation - table gets most space
+    tab_camps.grid_rowconfigure(0, weight=0)   # Pay label (fixed)
+    tab_camps.grid_rowconfigure(1, weight=0)   # Pay frame (fixed)
+    tab_camps.grid_rowconfigure(2, weight=1)   # Camps frame (table) expands to fill
+    tab_camps.grid_rowconfigure(3, weight=0)   # Form label (fixed)
+    tab_camps.grid_rowconfigure(4, weight=0)   # Form section (fixed)
+    tab_camps.grid_columnconfigure(0, weight=1)  # Column expands horizontally
 
-    pay_frame_title = ttk.Label(tab_camps, text="Daily pay rate per leader (£/GBP)", font=("Helvetica", 11, "bold"))
-    pay_frame_title.pack(anchor=tk.W, padx=10, pady=(6, 2))
+    ttk.Label(tab_camps, text="Daily pay rate per leader (£/GBP)", font=("Helvetica", 11, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=(6, 2))
     pay_frame = ttk.Frame(tab_camps, style="Card.TFrame", padding=10)
-    pay_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
+    pay_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
     daily_rate_var = tk.StringVar(value=get_daily_pay_rate())
     daily_rate_entry = ttk.Entry(pay_frame, textvariable=daily_rate_var, width=10)
     daily_rate_entry.pack(side=tk.LEFT, padx=6)
@@ -264,7 +275,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     ttk.Button(pay_frame, text="Save", command=save_daily_rate, style="Primary.TButton").pack(side=tk.LEFT)
 
     camps_frame = tk.LabelFrame(tab_camps, text="Camp list", padx=10, pady=10)
-    camps_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+    camps_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=6)
 
     columns = (
         "Name",
@@ -310,9 +321,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     camps_empty_label = ttk.Label(camps_frame, text="No camps available. Create one above.", style="Muted.TLabel")
     camps_empty_label.pack_forget()
 
-    ttk.Label(tab_camps, text="Create / Update Camp", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, padx=10, pady=(6, 2))
+    form_section_label = ttk.Label(tab_camps, text="Create / Update Camp", font=("Helvetica", 12, "bold"))
+    form_section_label.grid(row=3, column=0, sticky="w", padx=10, pady=(6, 2))
     form_frame = ttk.Frame(tab_camps, style="Card.TFrame", padding=10)
-    form_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
+    form_frame.grid(row=4, column=0, sticky="ew", padx=10, pady=(0, 6))
 
     name_var = tk.StringVar()
     county_var = tk.StringVar()
@@ -645,10 +657,17 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     # ========== Tab 2: Stock Management ==========
     tab_stock = tk.Frame(notebook)
     notebook.add(tab_stock, text="Stock Management")
+    stock_tab_index = 1  # Stock Management is the second tab (index 1)
+    # Configure grid for better space allocation
+    tab_stock.grid_rowconfigure(0, weight=0)  # Top-up label (fixed)
+    tab_stock.grid_rowconfigure(1, weight=0)  # Top-up frame (fixed)
+    tab_stock.grid_rowconfigure(2, weight=0)  # History label (fixed)
+    tab_stock.grid_rowconfigure(3, weight=1)  # History frame expands to fill
+    tab_stock.grid_columnconfigure(0, weight=1)  # Column expands horizontally
 
-    ttk.Label(tab_stock, text="Top up daily food", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, padx=10, pady=(6, 2))
+    ttk.Label(tab_stock, text="Top up daily food", font=("Helvetica", 12, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=(6, 2))
     topup_frame = ttk.Frame(tab_stock, style="Card.TFrame", padding=10)
-    topup_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
+    topup_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
 
     # Selected camp indicator
     selected_camp_var = tk.StringVar(value="No camp selected")
@@ -685,9 +704,9 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     ttk.Button(topup_input_frame, text="Apply", command=apply_topup, style="Primary.TButton").pack(side=tk.LEFT, padx=4)
 
-    ttk.Label(tab_stock, text="Top-up history for selected camp", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, padx=10, pady=(6, 2))
+    ttk.Label(tab_stock, text="Top-up history for selected camp", font=("Helvetica", 12, "bold")).grid(row=2, column=0, sticky="w", padx=10, pady=(6, 2))
     history_frame = ttk.Frame(tab_stock, style="Card.TFrame", padding=10)
-    history_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
+    history_frame.grid(row=3, column=0, sticky="nsew", padx=10, pady=(0, 6))
 
     # Text area with themed scrollbar
     history_scroll = ttk.Scrollbar(history_frame, orient="vertical")
@@ -723,9 +742,14 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     # ========== Tab 3: Analytics & Alerts ==========
     tab_analytics = tk.Frame(notebook)
     notebook.add(tab_analytics, text="Analytics")
+    # Configure tab to expand properly
+    tab_analytics.grid_rowconfigure(0, weight=1)  # Charts container expands
+    tab_analytics.grid_rowconfigure(1, weight=0)  # Alert label (fixed)
+    tab_analytics.grid_rowconfigure(2, weight=0)  # Alert text (fixed)
+    tab_analytics.grid_columnconfigure(0, weight=1)
 
     charts_container = ttk.Frame(tab_analytics)
-    charts_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+    charts_container.grid(row=0, column=0, sticky="nsew", padx=10, pady=6)
 
     chart_campers = BarChart(charts_container, width=360, height=220)
     chart_leaders = BarChart(charts_container, width=360, height=220)
@@ -741,9 +765,9 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     # Removed muted subtitle to keep the UI clean
 
-    ttk.Label(tab_analytics, text="Food shortage alerts", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, padx=10, pady=(6, 2))
+    ttk.Label(tab_analytics, text="Food shortage alerts", font=("Helvetica", 12, "bold")).grid(row=1, column=0, sticky="w", padx=10, pady=(6, 2))
     alerts_frame = ttk.Frame(tab_analytics, style="Card.TFrame", padding=10)
-    alerts_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
+    alerts_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 6))
 
     # Replace Listbox with a styled read-only Text area + scrollbar for nicer formatting
     alerts_scroll = ttk.Scrollbar(alerts_frame, orient="vertical")
@@ -839,17 +863,26 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     # ========== Tab 4: Chat ==========
     tab_chat = tk.Frame(notebook)
     notebook.add(tab_chat, text="Chat")
+    # Configure tab to expand properly
+    tab_chat.grid_rowconfigure(0, weight=1)  # Message board expands
+    tab_chat.grid_columnconfigure(0, weight=1)
 
     MessageBoard(
         tab_chat,
         post_callback=lambda content: post_message(user.get("id"), content),
         fetch_callback=lambda: list_messages_lines(),
         current_user=user.get("username"),
-    ).pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    ).grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
     update_form_buttons()
 
-    # Show shortage notification after dashboard loads (delayed to ensure UI is ready)
-    root_frame.after(500, lambda: _check_and_notify_shortages(root_frame))
+    # Show shortage notification only when Stock Management tab is opened
+    def on_tab_changed(event):
+        current_tab = notebook.index(notebook.select())
+        if current_tab == stock_tab_index and not shortage_notification_shown["shown"]:
+            shortage_notification_shown["shown"] = True
+            root_frame.after(100, lambda: _check_and_notify_shortages(root_frame))
+    
+    notebook.bind("<<NotebookTabChanged>>", on_tab_changed)
 
     return root_frame
