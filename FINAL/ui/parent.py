@@ -269,9 +269,11 @@ def _build_leader_reports_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> N
     # Configure container to expand
     container.grid_rowconfigure(0, weight=0)  # Top row (fixed)
     container.grid_rowconfigure(1, weight=0)  # Description label (fixed)
-    container.grid_rowconfigure(2, weight=1)  # Reports table expands
+    container.grid_rowconfigure(2, weight=3)  # Reports table expands (more space)
+    container.grid_rowconfigure(3, weight=0)  # Detail label (fixed)
+    container.grid_rowconfigure(4, weight=1)  # Detail pane (less space)
     container.grid_columnconfigure(0, weight=1)
-    
+
     # Top row with selector
     top_row = ttk.Frame(container)
     top_row.grid(row=0, column=0, sticky="ew", pady=(0, 10))
@@ -286,25 +288,79 @@ def _build_leader_reports_tab(notebook: ttk.Notebook, user: Dict[str, Any]) -> N
 
     # Reports table - page-level scrolling only
     reports_tree = ttk.Treeview(container, columns=("Date", "Leader", "Notes"), show="headings")
-    reports_tree.grid(row=2, column=0, sticky="nsew")
+    reports_tree.grid(row=2, column=0, sticky="nsew", pady=(0, 10))
     
-    for col, width in [("Date", 100), ("Leader", 120), ("Notes", 500)]:
-        reports_tree.heading(col, text=col)
-        reports_tree.column(col, width=width, minwidth=80, stretch=True)
+    reports_tree.heading("Date", text="Date")
+    reports_tree.heading("Leader", text="Leader")
+    reports_tree.heading("Notes", text="Notes (click row to view full message)")
+    reports_tree.column("Date", width=100, minwidth=80, stretch=False)
+    reports_tree.column("Leader", width=120, minwidth=100, stretch=False)
+    reports_tree.column("Notes", width=500, minwidth=300, stretch=True)
+    
+    # Detail view for full message
+    ttk.Label(container, text="Full Message:", font=("Helvetica", 10, "bold")).grid(row=3, column=0, sticky="w", pady=(0, 4))
+    detail_frame = ttk.Frame(container, style="Card.TFrame", padding=5)
+    detail_frame.grid(row=4, column=0, sticky="nsew")
+    
+    detail_scroll = ttk.Scrollbar(detail_frame, orient="vertical")
+    detail_text = tk.Text(detail_frame, height=4, wrap="word", state="disabled", yscrollcommand=detail_scroll.set)
+    detail_scroll.config(command=detail_text.yview)
+    detail_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    detail_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
     def refresh_reports(*_args: Any) -> None:
         for row in reports_tree.get_children():
             reports_tree.delete(row)
+        # Clear detail view
+        detail_text.config(state="normal")
+        detail_text.delete("1.0", tk.END)
+        detail_text.insert("1.0", "Select a report to view the full message.")
+        detail_text.config(state="disabled")
+        
         camper_idx = camper_names.index(selected_camper.get())
         camper_id = campers[camper_idx]["id"]
         reports = list_daily_reports_for_camper(camper_id)
-        for r in reports:
+        
+        # Zebra-striping
+        from ui.theme import get_palette, tint
+        palette = get_palette(reports_tree)
+        reports_tree.tag_configure("even", background=palette["surface"])
+        reports_tree.tag_configure("odd", background=tint(palette["surface"], -0.03))
+        
+        for idx, r in enumerate(reports):
+            # Truncate notes for table display
+            notes = r.get("notes", "")
+            display_notes = (notes[:60] + "...") if len(notes) > 60 else notes
             reports_tree.insert(
                 "",
                 tk.END,
-                values=(r.get("date", ""), r.get("leader", ""), r.get("notes", "")),
+                values=(r.get("date", ""), r.get("leader", ""), display_notes),
+                tags=("odd",) if (idx % 2 == 1) else ("even",)
             )
-
+    
+    def show_report_detail(event=None) -> None:
+        selection = reports_tree.selection()
+        if not selection:
+            return
+        item_id = selection[0]
+        values = reports_tree.item(item_id, "values")
+        if len(values) < 3:
+            return
+        date, leader, display_notes = values[0], values[1], values[2]
+        
+        # Get full notes from original data
+        camper_idx = camper_names.index(selected_camper.get())
+        camper_id = campers[camper_idx]["id"]
+        reports = list_daily_reports_for_camper(camper_id)
+        matching_report = next((r for r in reports if r.get("date") == date and r.get("leader") == leader), None)
+        
+        if matching_report:
+            detail_text.config(state="normal")
+            detail_text.delete("1.0", tk.END)
+            detail_text.insert("1.0", f"Date: {date}\nLeader: {leader}\n\n{matching_report.get('notes', '')}")
+            detail_text.config(state="disabled")
+    
+    reports_tree.bind("<<TreeviewSelect>>", show_report_detail)
     camper_menu.bind("<<ComboboxSelected>>", lambda _e: refresh_reports())
     selected_camper.trace_add("write", lambda *_: refresh_reports())
     refresh_reports()

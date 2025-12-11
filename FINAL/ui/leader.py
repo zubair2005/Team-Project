@@ -1676,22 +1676,43 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     reports_frame = tk.LabelFrame(tab_reports, text="Daily reports for selected camp", padx=10, pady=10)
     reports_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=6)
+    # Configure reports frame for table + detail view
+    reports_frame.grid_rowconfigure(0, weight=0)  # Action buttons (fixed)
+    reports_frame.grid_rowconfigure(1, weight=3)  # Table gets more space
+    reports_frame.grid_rowconfigure(2, weight=0)  # Detail label (fixed)
+    reports_frame.grid_rowconfigure(3, weight=1)  # Detail pane gets less space
+    reports_frame.grid_columnconfigure(0, weight=1)
 
     # Reports table - page-level scrolling only
     reports_table = ttk.Treeview(reports_frame, columns=["Date", "Notes"], show="headings")
-    reports_table.pack(fill=tk.BOTH, expand=True)
+    reports_table.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
     reports_table.heading("Date", text="Date")
-    reports_table.heading("Notes", text="Notes")
-    reports_table.column("Date", width=120, minwidth=100, stretch=True)
+    reports_table.heading("Notes", text="Notes (click row to view full message)")
+    reports_table.column("Date", width=120, minwidth=100, stretch=False)
     reports_table.column("Notes", width=400, minwidth=300, stretch=True)
 
     reports_empty_label = ttk.Label(reports_frame, text="No reports for the selected camp.", style="Muted.TLabel")
-    reports_empty_label.pack_forget()
+    reports_empty_label.grid_forget()
+    
+    # Detail view for full message
+    ttk.Label(reports_frame, text="Full Message:", font=("Helvetica", 10, "bold")).grid(row=2, column=0, sticky="w", pady=(0, 4))
+    detail_frame = ttk.Frame(reports_frame, style="Card.TFrame", padding=5)
+    detail_frame.grid(row=3, column=0, sticky="nsew")
+    
+    detail_scroll = ttk.Scrollbar(detail_frame, orient="vertical")
+    detail_text = tk.Text(detail_frame, height=4, wrap="word", state="disabled", yscrollcommand=detail_scroll.set)
+    detail_scroll.config(command=detail_text.yview)
+    detail_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    detail_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
     def refresh_daily_reports() -> None:
-        # Clear the table
+        # Clear the table and detail view
         for item in reports_table.get_children():
             reports_table.delete(item)
+        detail_text.config(state="normal")
+        detail_text.delete("1.0", tk.END)
+        detail_text.insert("1.0", "Select a report to view the full message.")
+        detail_text.config(state="disabled")
 
         selection = assignments_table.selection()
         if not selection:
@@ -1709,18 +1730,49 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         reports_table.tag_configure("odd", background=tint(palette["surface"], -0.03))
 
         for idx, report in enumerate(reports):
-            reports_table.insert(
+            # Truncate notes for table display
+            notes = report["notes"]
+            display_notes = (notes[:80] + "...") if len(notes) > 80 else notes
+            item_id = reports_table.insert(
                 "",
                 tk.END,
-                values=(report["date"], report["notes"]),
+                values=(report["date"], display_notes),
                 tags=("odd",) if (idx % 2 == 1) else ("even",)
             )
-
+            # Store full notes in item for retrieval
+            reports_table.set(item_id, "#1", report["date"])  # Keep date
+            
         # Empty state toggle
         if not reports:
-            reports_empty_label.pack(pady=(0, 4), anchor=tk.W)
+            reports_empty_label.grid(row=1, column=0, pady=(0, 4), sticky="w")
         else:
-            reports_empty_label.pack_forget()
+            reports_empty_label.grid_forget()
+    
+    def show_report_detail(event=None) -> None:
+        selection = reports_table.selection()
+        if not selection:
+            return
+        item_id = selection[0]
+        values = reports_table.item(item_id, "values")
+        if len(values) < 2:
+            return
+        date, display_notes = values[0], values[1]
+        
+        # Get full notes from original data
+        assignment_selection = assignments_table.selection()
+        if assignment_selection:
+            assignment_id = int(assignment_selection[0])
+            assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
+            if assignment:
+                reports = list_daily_reports(leader_id, assignment["camp_id"])
+                matching_report = next((r for r in reports if r["date"] == date), None)
+                if matching_report:
+                    detail_text.config(state="normal")
+                    detail_text.delete("1.0", tk.END)
+                    detail_text.insert("1.0", f"Date: {date}\n\n{matching_report['notes']}")
+                    detail_text.config(state="disabled")
+    
+    reports_table.bind("<<TreeviewSelect>>", show_report_detail)
 
 
     def validate_dates_reports(date):
@@ -1984,7 +2036,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
 
     reports_actions = ttk.Frame(reports_frame)
-    reports_actions.pack(fill=tk.X, pady=4)
+    reports_actions.grid(row=0, column=0, sticky="ew", pady=(0, 4))
     ttk.Button(reports_actions, text="Add report", command=add_report).pack(side=tk.LEFT, padx=4)
     ttk.Button(reports_actions, text="Edit report", command=edit_report).pack(side=tk.LEFT, padx=4)
     ttk.Button(reports_actions, text="Delete report", command=delete_report).pack(side=tk.LEFT, padx=4)

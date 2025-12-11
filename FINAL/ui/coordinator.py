@@ -225,9 +225,6 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
     # Ensure notebook expands its tabs to fill available space
     container.pack_propagate(True)
-    
-    # Track if shortage notification has been shown for this session
-    shortage_notification_shown = {"shown": False}
 
     # ========== Tab 1: Camps ==========
     tab_camps = tk.Frame(notebook)
@@ -876,11 +873,11 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     update_form_buttons()
 
-    # Show shortage notification only when Stock Management tab is opened
+    # Show shortage notification every time Stock Management tab is opened
     def on_tab_changed(event):
         current_tab = notebook.index(notebook.select())
-        if current_tab == stock_tab_index and not shortage_notification_shown["shown"]:
-            shortage_notification_shown["shown"] = True
+        if current_tab == stock_tab_index:
+            # Show notification every time, not just once
             root_frame.after(100, lambda: _check_and_notify_shortages(root_frame))
     
     notebook.bind("<<NotebookTabChanged>>", on_tab_changed)
