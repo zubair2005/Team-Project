@@ -846,12 +846,12 @@ def list_daily_reports(leader_user_id: int, camp_id: int) -> List[Dict[str, Any]
 
 
 def save_daily_report(leader_user_id: int, camp_id: int, date: str, notes: str) -> None:
+    """Save a new daily report (allows multiple reports for same date/camp)."""
     with _connect() as conn:
         conn.execute(
             """
             INSERT INTO daily_reports(camp_id, leader_user_id, date, notes)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(date, camp_id, leader_user_id) DO UPDATE SET notes = excluded.notes;
+            VALUES (?, ?, ?, ?);
             """,
             (camp_id, leader_user_id, date, notes.strip()),
         )
@@ -1325,6 +1325,22 @@ def remove_parent_camper(parent_id: int, camper_id: int) -> bool:
         return True
     except sqlite3.IntegrityError:
         return False
+
+
+def get_camper_parent(camper_id: int) -> Optional[Dict[str, Any]]:
+    """Return the parent linked to a camper, or None if no parent is linked."""
+    with _dict_cursor(_connect()) as conn:
+        row = conn.execute(
+            """
+            SELECT u.id, u.username, u.role
+            FROM parent_campers pc
+            JOIN users u ON pc.parent_id = u.id
+            WHERE pc.camper_id = ?
+            LIMIT 1
+            """,
+            (camper_id,),
+        ).fetchone()
+        return dict(row) if row else None
 
 
 def list_parent_campers(parent_id: int) -> List[Dict[str, Any]]:

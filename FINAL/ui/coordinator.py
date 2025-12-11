@@ -745,20 +745,26 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     tab_analytics.grid_rowconfigure(2, weight=0)  # Alert text (fixed)
     tab_analytics.grid_columnconfigure(0, weight=1)
 
-    charts_container = ttk.Frame(tab_analytics)
-    charts_container.grid(row=0, column=0, sticky="nsew", padx=10, pady=6)
+    # Create scrollable container for charts
+    charts_scroll_frame = ScrollFrame(tab_analytics, enable_horizontal=True)
+    charts_scroll_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=6)
+    
+    charts_container = ttk.Frame(charts_scroll_frame.content)
+    charts_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-    chart_campers = BarChart(charts_container, width=360, height=220)
-    chart_leaders = BarChart(charts_container, width=360, height=220)
-    chart_activities = BarChart(charts_container, width=360, height=220)
-    chart_area = BarChart(charts_container, width=360, height=220)
-    chart_food = DualBarChart(charts_container, width=360, height=220)
+    # Slightly wider charts to give labels more room
+    chart_campers = BarChart(charts_container, width=460, height=280)
+    chart_leaders = BarChart(charts_container, width=460, height=280)
+    chart_activities = BarChart(charts_container, width=460, height=280)
+    chart_area = BarChart(charts_container, width=460, height=280)
+    chart_food = DualBarChart(charts_container, width=460, height=280)
 
-    chart_campers.grid(row=0, column=0, padx=6, pady=6)
-    chart_leaders.grid(row=0, column=1, padx=6, pady=6)
-    chart_activities.grid(row=1, column=0, padx=6, pady=6)
-    chart_area.grid(row=1, column=1, padx=6, pady=6)
-    chart_food.grid(row=0, column=2, rowspan=2, padx=6, pady=6)
+    # Add more padding to prevent overlap
+    chart_campers.grid(row=0, column=0, padx=15, pady=15)
+    chart_leaders.grid(row=0, column=1, padx=15, pady=15)
+    chart_activities.grid(row=1, column=0, padx=15, pady=15)
+    chart_area.grid(row=1, column=1, padx=15, pady=15)
+    chart_food.grid(row=0, column=2, rowspan=2, padx=15, pady=15)
 
     # Removed muted subtitle to keep the UI clean
 
@@ -809,7 +815,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         chart_campers.draw(stats["campers_per_camp"], title="Campers per camp")
         chart_leaders.draw(stats["leaders_per_camp"], title="Leaders per camp")
         chart_activities.draw(stats["activities_per_camp"], title="Activities per camp")
-        chart_area.draw(stats["camps_by_area"], title="Camps by area")
+        chart_area.draw(stats["camps_by_area"], title="Camps by city")
         food_data = [
             (row["label"], row["effective"], row["required"])
             for row in stats["food_comparison"]

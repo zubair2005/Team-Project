@@ -122,9 +122,9 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
 
 
-    # ========== Tab 1: Camps & Pay ==========
+    # ========== Tab 1: Camps ==========
     tab_camps = tk.Frame(notebook)
-    notebook.add(tab_camps, text="Camps & Pay")
+    notebook.add(tab_camps, text="Camps")
     # Configure tab to expand properly
     tab_camps.grid_rowconfigure(0, weight=0)  # Pay label (fixed)
     tab_camps.grid_rowconfigure(1, weight=0)  # Pay frame (fixed)
@@ -132,33 +132,8 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     tab_camps.grid_rowconfigure(3, weight=1)  # Assignments frame expands
     tab_camps.grid_columnconfigure(0, weight=1)
 
-    ttk.Label(tab_camps, text="Pay summary", font=("Helvetica", 12, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=(6, 2))
-    pay_frame = ttk.Frame(tab_camps, style="Card.TFrame", padding=10)
-    pay_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
-
-    total_pay_var = tk.StringVar(value="Total: 0.00")
-    ttk.Label(pay_frame, textvariable=total_pay_var, font=("Helvetica", 13, "bold")).pack(side=tk.LEFT, padx=6)
-
-    per_camp_text = tk.Text(pay_frame, height=3, width=60, state="disabled")
-    per_camp_text.pack(side=tk.LEFT, padx=6)
-
-    def refresh_pay_summary() -> None:
-        summary = get_leader_pay_summary(leader_id)
-        total_pay_var.set(f"Total: £{summary['total_pay']:.2f}")
-        per_camp_text.config(state="normal")
-        per_camp_text.delete("1.0", tk.END)
-        if not summary["per_camp"]:
-            per_camp_text.insert(tk.END, "No camps assigned yet.\n")
-        else:
-            for item in summary["per_camp"]:
-                per_camp_text.insert(
-                    tk.END,
-                    f"{item['camp_name']}: {item['days']} day(s) • £{item['pay']:.2f}\n",
-                )
-        per_camp_text.config(state="disabled")
-
     assignments_frame = tk.LabelFrame(tab_camps, text="My camp assignments", padx=10, pady=10)
-    assignments_frame.grid(row=3, column=0, sticky="nsew", padx=10, pady=6)
+    assignments_frame.grid(row=1, column=0, columnspan=1, sticky="nsew", padx=10, pady=6)
 
     columns = ("Camp", "County", "City", "Start", "End")
     assignments_table = ttk.Treeview(assignments_frame, columns=columns, show="headings")
@@ -202,7 +177,6 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                 tags=("odd",) if (idx % 2 == 1) else ("even",),
             )
         refresh_available_camps()
-        refresh_pay_summary()
 
     tk.Label(assignments_frame, text="Available camps (no conflicts)").pack(pady=(10, 4))
     available_table = ttk.Treeview(assignments_frame, columns=columns, show="headings")
@@ -382,7 +356,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     tab_campers.grid_rowconfigure(2, weight=1)  # Gallery expands
     tab_campers.grid_columnconfigure(0, weight=1)
 
-    # In-tab camp selector (preferred over relying on 'Camps & Pay' selection)
+    # In-tab camp selector (preferred over relying on 'Camps' selection)
     selector_row = ttk.Frame(tab_campers)
     selector_row.grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 2))
     ttk.Label(selector_row, text="Camp:", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 6))
@@ -998,7 +972,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                 pass
             campers_empty_label.pack(pady=(0, 4), anchor=tk.W)
             return
-        # Fallback: use selection from 'Camps & Pay' if none chosen in selector
+        # Fallback: use selection from 'Camps' tab if none chosen in selector
         selection = assignments_table.selection()
         assignment_id = int(selection[0]) if selection else None
         record = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None) if assignment_id is not None else None
@@ -1112,7 +1086,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     def import_csv() -> None:
         selection = assignments_table.selection()
         if not selection:
-            messagebox.showinfo("Import", "Select an assignment from 'Camps & Pay' tab first.")
+            messagebox.showinfo("Import", "Select an assignment from 'Camps' tab first.")
             return
         assignment_id = int(selection[0])
         assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
@@ -1141,7 +1115,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     def adjust_food_units() -> None:
         selection = assignments_table.selection()
         if not selection:
-            messagebox.showinfo("Food", "Select an assignment from 'Camps & Pay' tab first.")
+            messagebox.showinfo("Food", "Select an assignment from 'Camps' tab first.")
             return
         assignment_id = int(selection[0])
         assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
@@ -1211,7 +1185,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     tab_activities.grid_rowconfigure(1, weight=1)  # Activities frame expands
     tab_activities.grid_columnconfigure(0, weight=1)
 
-    tk.Label(tab_activities, text="Select an assignment from 'Camps & Pay' tab first", fg="#666666", font=("Helvetica", 10, "italic")).grid(row=0, column=0, pady=4)
+    tk.Label(tab_activities, text="Select an assignment from 'Camps' tab first", fg="#666666", font=("Helvetica", 10, "italic")).grid(row=0, column=0, pady=4)
 
     activities_frame = tk.LabelFrame(tab_activities, text="Activities for selected camp", padx=10, pady=10)
     activities_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=6)
@@ -1253,7 +1227,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     def create_activity_dialog() -> None:
         selection = assignments_table.selection()
         if not selection:
-            messagebox.showinfo("Activity", "Select an assignment from 'Camps & Pay' tab first.")
+            messagebox.showinfo("Activity", "Select an assignment from 'Camps' tab first.")
             return
         assignment_id = int(selection[0])
         assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
@@ -1317,7 +1291,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     def delete_selected_activity() -> None:
         selection_assignment = assignments_table.selection()
         if not selection_assignment:
-            messagebox.showinfo("Activity", "Select an assignment from 'Camps & Pay' tab first.")
+            messagebox.showinfo("Activity", "Select an assignment from 'Camps' tab first.")
             return
         assignment_id = int(selection_assignment[0])
         assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
@@ -1343,7 +1317,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     def assign_campers_to_selected_activity() -> None:
         selection_assignment = assignments_table.selection()
         if not selection_assignment:
-            messagebox.showinfo("Activity", "Select an assignment from 'Camps & Pay' tab first.")
+            messagebox.showinfo("Activity", "Select an assignment from 'Camps' tab first.")
             return
         assignment_id = int(selection_assignment[0])
         assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
@@ -1518,7 +1492,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     def unassign_campers_from_selected_activity() -> None:
         selection_assignment = assignments_table.selection()
         if not selection_assignment:
-            messagebox.showinfo("Activity", "Select an assignment from 'Camps & Pay' tab first.")
+            messagebox.showinfo("Activity", "Select an assignment from 'Camps' tab first.")
             return
         assignment_id = int(selection_assignment[0])
         assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
@@ -1587,7 +1561,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     def edit_selected_activity() -> None:
         selection_assignment = assignments_table.selection()
         if not selection_assignment:
-            messagebox.showinfo("Activity", "Select an assignment from 'Camps & Pay' tab first.")
+            messagebox.showinfo("Activity", "Select an assignment from 'Camps' tab first.")
             return
         assignment_id = int(selection_assignment[0])
         assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
@@ -1672,7 +1646,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     tab_reports.grid_rowconfigure(1, weight=1)  # Reports frame expands
     tab_reports.grid_columnconfigure(0, weight=1)
 
-    tk.Label(tab_reports, text="Select an assignment from 'Camps & Pay' tab first", fg="#666666", font=("Helvetica", 10, "italic")).grid(row=0, column=0, pady=4)
+    tk.Label(tab_reports, text="Select an assignment from 'Camps' tab first", fg="#666666", font=("Helvetica", 10, "italic")).grid(row=0, column=0, pady=4)
 
     reports_frame = tk.LabelFrame(tab_reports, text="Daily reports for selected camp", padx=10, pady=10)
     reports_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=6)
@@ -1690,9 +1664,6 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     reports_table.heading("Notes", text="Notes (click row to view full message)")
     reports_table.column("Date", width=120, minwidth=100, stretch=False)
     reports_table.column("Notes", width=400, minwidth=300, stretch=True)
-
-    reports_empty_label = ttk.Label(reports_frame, text="No reports for the selected camp.", style="Muted.TLabel")
-    reports_empty_label.grid_forget()
     
     # Detail view for full message
     ttk.Label(reports_frame, text="Full Message:", font=("Helvetica", 10, "bold")).grid(row=2, column=0, sticky="w", pady=(0, 4))
@@ -1736,36 +1707,33 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             item_id = reports_table.insert(
                 "",
                 tk.END,
+                iid=str(report["id"]),  # Store report ID as tree item ID
                 values=(report["date"], display_notes),
                 tags=("odd",) if (idx % 2 == 1) else ("even",)
             )
             # Store full notes in item for retrieval
             reports_table.set(item_id, "#1", report["date"])  # Keep date
-            
-        # Empty state toggle
-        if not reports:
-            reports_empty_label.grid(row=1, column=0, pady=(0, 4), sticky="w")
-        else:
-            reports_empty_label.grid_forget()
     
     def show_report_detail(event=None) -> None:
         selection = reports_table.selection()
         if not selection:
             return
-        item_id = selection[0]
-        values = reports_table.item(item_id, "values")
+        
+        # Get report ID from tree item ID
+        report_id = int(selection[0])
+        values = reports_table.item(selection[0], "values")
         if len(values) < 2:
             return
-        date, display_notes = values[0], values[1]
+        date = values[0]
         
-        # Get full notes from original data
+        # Get full notes from original data by report ID
         assignment_selection = assignments_table.selection()
         if assignment_selection:
             assignment_id = int(assignment_selection[0])
             assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
             if assignment:
                 reports = list_daily_reports(leader_id, assignment["camp_id"])
-                matching_report = next((r for r in reports if r["date"] == date), None)
+                matching_report = next((r for r in reports if r["id"] == report_id), None)
                 if matching_report:
                     detail_text.config(state="normal")
                     detail_text.delete("1.0", tk.END)
@@ -1779,7 +1747,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         # Validate date format again here for consistency
         selection = assignments_table.selection()
         if not selection:
-            messagebox.showinfo("Report", "Select an assignment from 'Camps & Pay' tab first.")
+            messagebox.showinfo("Report", "Select an assignment from 'Camps' tab first.")
             return False
         assignment_id = int(selection[0])
         assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
@@ -1825,7 +1793,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     def add_report() -> None:
         selection = assignments_table.selection()
         if not selection:
-            messagebox.showinfo("Report", "Select an assignment from 'Camps & Pay' tab first.")
+            messagebox.showinfo("Report", "Select an assignment from 'Camps' tab first.")
             return
         assignment_id = int(selection[0])
         assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
@@ -1871,10 +1839,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                 # Turn off foreign keys to ignore the broken users_old reference
                 conn.execute("PRAGMA foreign_keys = OFF;")
 
-                # Use INSERT OR REPLACE instead of ON CONFLICT
+                # Insert new report (allows multiple reports for same date/camp)
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO daily_reports(camp_id, leader_user_id, date, notes)
+                    INSERT INTO daily_reports(camp_id, leader_user_id, date, notes)
                     VALUES (?, ?, ?, ?);
                     """,
                     (assignment["camp_id"], leader_id, date, notes.strip()),
@@ -1898,7 +1866,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     def edit_report() -> None:
         selection = assignments_table.selection()
         if not selection:
-            messagebox.showinfo("Report", "Select an assignment from 'Camps & Pay' tab first.")
+            messagebox.showinfo("Report", "Select an assignment from 'Camps' tab first.")
             return
         assignment_id = int(selection[0])
         assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
@@ -1909,15 +1877,19 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         if not report_sel:
             messagebox.showinfo("Report", "Select a report row to edit.")
             return
-        idx = reports_table.index(report_sel[0])
-        # Fetch current data
-        current_rows = reports_table.get_children()
-        if idx >= len(current_rows):
+        
+        # Get the report ID from the tree item ID
+        report_id = int(report_sel[0])
+        
+        # Fetch FULL report data from database, not from table display
+        reports = list_daily_reports(leader_id, assignment["camp_id"])
+        report = next((r for r in reports if r["id"] == report_id), None)
+        if report is None:
+            messagebox.showerror("Error", "Report not found.")
             return
-        item_id = current_rows[idx]
-        values = reports_table.item(item_id, "values")
-        original_date = values[0]
-        original_notes = values[1]
+        
+        original_date = report["date"]
+        original_notes = report["notes"]  # Get full notes, not truncated version
 
         dialog = tk.Toplevel(container)
         dialog.title("Edit daily report")
@@ -1954,17 +1926,10 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                 conn = sqlite3.connect(db_path)
                 conn.execute("PRAGMA foreign_keys = OFF;")
 
-                # If date changed, delete old
-                if new_date != original_date:
-                    conn.execute(
-                        "DELETE FROM daily_reports WHERE leader_user_id = ? AND camp_id = ? AND date = ?;",
-                        (leader_id, assignment["camp_id"], original_date),
-                    )
-
-                # Insert new/replacement
+                # Update the specific report by ID
                 conn.execute(
-                    "INSERT OR REPLACE INTO daily_reports(camp_id, leader_user_id, date, notes) VALUES (?, ?, ?, ?);",
-                    (assignment["camp_id"], leader_id, new_date, new_notes.strip()),
+                    "UPDATE daily_reports SET date = ?, notes = ? WHERE id = ?;",
+                    (new_date, new_notes.strip(), report_id),
                 )
 
                 conn.commit()
@@ -1984,7 +1949,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     def delete_report():
         selection = assignments_table.selection()
         if not selection:
-            messagebox.showinfo("Report", "Select an assignment from 'Camps & Pay' tab first.")
+            messagebox.showinfo("Report", "Select an assignment from 'Camps' tab first.")
             return
         assignment_id = int(selection[0])
         assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
@@ -1996,15 +1961,9 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         if not report_sel:
             messagebox.showinfo("Report", "Select a report row to delete.")
             return
-        idx = reports_table.index(report_sel[0])
-
-        # Fetch current data
-        current_rows = reports_table.get_children()
-        if idx >= len(current_rows):
-            return
-        item_id = current_rows[idx]
-        values = reports_table.item(item_id, "values")
-        original_date = values[0]
+        
+        # Get report ID from tree item ID
+        report_id = int(report_sel[0])
 
         if messagebox.askyesno('Delete Report',
                                'Are you sure you want to delete this report? This action cannot be undone.'):
@@ -2018,8 +1977,8 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                 conn.execute("PRAGMA foreign_keys = OFF;")
 
                 conn.execute(
-                    "DELETE FROM daily_reports WHERE leader_user_id = ? AND camp_id = ? AND date = ?;",
-                    (leader_id, assignment["camp_id"], original_date),
+                    "DELETE FROM daily_reports WHERE id = ?;",
+                    (report_id,),
                 )
 
                 conn.commit()
@@ -2046,16 +2005,67 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     tab_stats = tk.Frame(notebook)
     notebook.add(tab_stats, text="Statistics")
     # Configure tab to expand properly
-    tab_stats.grid_rowconfigure(0, weight=0)  # Title label (fixed)
-    tab_stats.grid_rowconfigure(1, weight=1)  # Stats container expands
-    tab_stats.grid_rowconfigure(2, weight=0)  # Summary label (fixed)
-    tab_stats.grid_rowconfigure(3, weight=0)  # Summary text (fixed)
+    tab_stats.grid_rowconfigure(0, weight=0)  # Pay summary (fixed)
+    tab_stats.grid_rowconfigure(1, weight=0)  # Title label (fixed)
+    tab_stats.grid_rowconfigure(2, weight=1)  # Stats container expands
+    tab_stats.grid_rowconfigure(3, weight=0)  # Summary label (fixed)
+    tab_stats.grid_rowconfigure(4, weight=0)  # Summary text (fixed)
     tab_stats.grid_columnconfigure(0, weight=1)
 
-    tk.Label(tab_stats, text="Statistics & Trends for All Camps Led", font=("Helvetica", 14, "bold")).grid(row=0, column=0, pady=8)
+    # Pay summary moved from 'Camps' tab to the top of Statistics
+    ttk.Label(tab_stats, text="Pay summary", font=("Helvetica", 12, "bold")).grid(
+        row=0, column=0, sticky="w", padx=10, pady=(6, 2)
+    )
+    pay_frame = ttk.Frame(tab_stats, style="Card.TFrame", padding=10)
+    pay_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
+
+    total_pay_var = tk.StringVar(value="Total: 0.00")
+    ttk.Label(
+        pay_frame, textvariable=total_pay_var, font=("Helvetica", 13, "bold")
+    ).pack(side=tk.LEFT, padx=6)
+
+    per_camp_text = tk.Text(pay_frame, height=3, width=60, state="disabled")
+    per_camp_text.pack(side=tk.LEFT, padx=6)
+
+    def refresh_pay_summary() -> None:
+        """Populate the pay summary box for the leader."""
+        summary = get_leader_pay_summary(leader_id)
+        total_pay_var.set(f"Total: £{summary['total_pay']:.2f}")
+        per_camp_text.config(state="normal")
+        per_camp_text.delete("1.0", tk.END)
+        if not summary["per_camp"]:
+            per_camp_text.insert(tk.END, "No camps assigned yet.\n")
+        else:
+            for item in summary["per_camp"]:
+                per_camp_text.insert(
+                    tk.END,
+                    f"{item['camp_name']}: {item['days']} day(s) • £{item['pay']:.2f}\n",
+                )
+        per_camp_text.config(state="disabled")
+
+    # Initial load so the box is not empty
+    refresh_pay_summary()
+
+    # Also refresh whenever the Statistics tab becomes active
+    def _on_tab_changed(event) -> None:
+        try:
+            current = event.widget.select()
+            if event.widget.tab(current, "text") == "Statistics":
+                refresh_pay_summary()
+        except Exception:
+            # Fail silently if notebook state is unexpected
+            pass
+
+    notebook.bind("<<NotebookTabChanged>>", _on_tab_changed)
+
+    tk.Label(
+        tab_stats,
+        text="Statistics & Trends for All Camps Led",
+        font=("Helvetica", 14, "bold"),
+    ).grid(row=2, column=0, pady=8)
 
     stats_container = ttk.Frame(tab_stats)
-    stats_container.grid(row=1, column=0, sticky="nsew", padx=10, pady=6)
+    stats_container.grid(row=3, column=0, sticky="nsew", padx=10, pady=6)
 
     # Stats table - page-level scrolling only
     stats_table_columns = ["Camp", "Area", "Days", "Campers", "Attending", "Participation %", "Activities", "Food/Day", "Total Food", "Reports"]
@@ -2104,9 +2114,13 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             stats_empty_label.pack_forget()
 
     # Summary panel
-    ttk.Label(tab_stats, text="Summary across all camps", font=("Helvetica", 12, "bold")).grid(row=2, column=0, sticky="w", padx=10, pady=(6, 2))
+    ttk.Label(
+        tab_stats,
+        text="Summary across all camps",
+        font=("Helvetica", 12, "bold"),
+    ).grid(row=4, column=0, sticky="w", padx=10, pady=(6, 2))
     summary_frame = ttk.Frame(tab_stats, style="Card.TFrame", padding=10)
-    summary_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
+    summary_frame.grid(row=5, column=0, sticky="ew", padx=10, pady=(0, 6))
 
     summary_text = tk.Text(summary_frame, height=6, state="disabled")
     summary_text.pack(fill=tk.X, pady=4)

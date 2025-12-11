@@ -387,20 +387,39 @@ class Table(ttk.Treeview):
 
 class BarChart(tk.Canvas):
     def __init__(self, master: tk.Misc, width: int = 400, height: int = 240):
-        super().__init__(master, width=width, height=height, background="white", highlightthickness=1,
-                         highlightbackground="#cccccc")
+        super().__init__(
+            master,
+            width=width,
+            height=height,
+            background="white",
+            highlightthickness=1,
+            highlightbackground="#cccccc",
+        )
         self.width = width
         self.height = height
 
     def draw(self, data: List[Tuple[str, int]], title: str = "") -> None:
+        """Draw a simple bar chart with labels clearly below the bars."""
         self.delete("all")
 
         # Draw title
         if title:
-            self.create_text(self.width // 2, 16, text=title, font=("Helvetica", 11, "bold"), fill="#2c3e50")
+            self.create_text(
+                self.width // 2,
+                16,
+                text=title,
+                font=("Helvetica", 11, "bold"),
+                fill="#2c3e50",
+            )
 
         if not data:
-            self.create_text(self.width // 2, self.height // 2, text="No data", fill="#95a5a6", font=("Helvetica", 10))
+            self.create_text(
+                self.width // 2,
+                self.height // 2,
+                text="No data",
+                fill="#95a5a6",
+                font=("Helvetica", 10),
+            )
             return
 
         labels, values = zip(*data)
@@ -408,38 +427,109 @@ class BarChart(tk.Canvas):
         if max_value == 0:
             max_value = 1
 
-        margin = 45
-        chart_height = self.height - margin * 2
-        chart_width = self.width - margin * 2
-        bar_width = chart_width / max(len(values), 1)
+        # Layout: chart area + axis + label band
+        left_right_margin = 40
+        top_margin = 30
+        # Give a tall vertical band so full labels can stack downwards
+        label_band = 90
+        bottom_margin = 10
 
-        # Draw gridlines
+        chart_height = self.height - top_margin - label_band - bottom_margin
+        chart_width = self.width - left_right_margin * 2
+
+        # Spacing between bars
+        num_bars = len(values)
+        bar_spacing = 10
+        total_spacing = bar_spacing * (num_bars + 1)
+        available_width = max(chart_width - total_spacing, 1)
+        bar_width = available_width / num_bars if num_bars > 0 else chart_width
+
+        # Axis baseline at bottom of chart area
+        x_axis_y = top_margin + chart_height
+        self.create_line(
+            left_right_margin,
+            x_axis_y,
+            self.width - left_right_margin,
+            x_axis_y,
+            fill="#2c3e50",
+            width=2,
+        )
+
+        # Horizontal gridlines inside chart area
         for i in range(5):
-            y = self.height - margin - (i * chart_height / 4)
-            self.create_line(margin, y, self.width - margin, y, fill="#ecf0f1", width=1)
+            y = x_axis_y - (i * chart_height / 4)
+            self.create_line(
+                left_right_margin,
+                y,
+                self.width - left_right_margin,
+                y,
+                fill="#ecf0f1",
+                width=1,
+            )
 
-        # Draw bars with gradient-like effect
+        # Draw bars and value labels
         colors = ["#3498db", "#2ecc71", "#9b59b6", "#e74c3c", "#f39c12", "#1abc9c"]
 
+        # Approximate max characters per line based on bar width (6 px/char at small font)
+        num_bars = len(values)
+        bar_spacing = 10
+        total_spacing = bar_spacing * (num_bars + 1)
+        available_width = max(chart_width - total_spacing, 1)
+        bar_width = available_width / num_bars if num_bars > 0 else chart_width
+        max_chars_per_line = max(int(bar_width // 6), 6)
+
+        def _wrap_label(text: str) -> str:
+            """Wrap label onto multiple lines so it fits under its bar."""
+            words = text.split()
+            if not words:
+                return ""
+            lines = []
+            current = words[0]
+            for w in words[1:]:
+                if len(current) + 1 + len(w) <= max_chars_per_line:
+                    current += " " + w
+                else:
+                    lines.append(current)
+                    current = w
+            lines.append(current)
+            # Limit to 3 lines max; if too long, truncate last line with ellipsis
+            if len(lines) > 3:
+                lines = lines[:3]
+                if len(lines[-1]) > 3:
+                    lines[-1] = lines[-1][: max_chars_per_line - 1] + "…"
+            return "\n".join(lines)
+
         for idx, value in enumerate(values):
-            x0 = margin + idx * bar_width + 8
-            x1 = margin + (idx + 1) * bar_width - 8
+            x0 = left_right_margin + bar_spacing + idx * (bar_width + bar_spacing)
+            x1 = x0 + bar_width
             bar_height = (value / max_value) * chart_height
-            y0 = self.height - margin - bar_height
-            y1 = self.height - margin
+            y0 = x_axis_y - bar_height  # bar top
+            y1 = x_axis_y  # bar bottom on axis
 
             color = colors[idx % len(colors)]
             self.create_rectangle(x0, y0, x1, y1, fill=color, outline="", width=0)
 
-            # Value label above bar
-            self.create_text((x0 + x1) / 2, y0 - 12, text=str(value), font=("Helvetica", 9, "bold"), fill="#2c3e50")
+            # Numeric value just above each bar
+            self.create_text(
+                (x0 + x1) / 2,
+                y0 - 6,
+                text=str(value),
+                font=("Helvetica", 8, "bold"),
+                fill="#2c3e50",
+            )
 
-            # X-axis label (truncate if too long)
-            label = str(labels[idx])
-            if len(label) > 10:
-                label = label[:9] + "…"
-            self.create_text((x0 + x1) / 2, self.height - margin + 14, text=label, font=("Helvetica", 8),
-                             fill="#34495e")
+            # Category label: below axis, wrapped over multiple small lines (not per-letter)
+            raw_label = str(labels[idx])
+            wrapped = _wrap_label(raw_label)
+            label_y = x_axis_y + 4  # start just below the axis, inside label band
+            self.create_text(
+                (x0 + x1) / 2,
+                label_y,
+                text=wrapped,
+                font=("Helvetica", 7),
+                fill="#34495e",
+                anchor="n",
+            )
 
 
 class DualBarChart(tk.Canvas):
@@ -464,53 +554,140 @@ class DualBarChart(tk.Canvas):
         if max_value == 0:
             max_value = 1
 
-        # Use separate top/bottom margins to make space for legend and avoid overlap
-        left_right_margin = 45
-        top_margin = 70
-        bottom_margin = 45
+        # Use separate top/bottom margins to make space for legend and labels
+        left_right_margin = 40
+        top_margin = 50
+        label_band = 45
+        bottom_margin = 20
 
-        chart_height = self.height - (top_margin + bottom_margin)
+        chart_height = self.height - top_margin - label_band - bottom_margin
         chart_width = self.width - left_right_margin * 2
-        bar_group_width = chart_width / max(len(data), 1)
-        bar_width = (bar_group_width - 10) / 2
 
-        # Draw gridlines
+        # Spacing between bar groups
+        num_groups = len(data)
+        group_spacing = 15
+        total_spacing = group_spacing * (num_groups + 1)
+        available_width = max(chart_width - total_spacing, 1)
+        bar_group_width = available_width / num_groups if num_groups > 0 else chart_width
+        bar_width = (bar_group_width - 8) / 2
+
+        # Approximate max characters per line for group labels
+        max_chars_per_line = max(int(bar_group_width // 6), 6)
+
+        def _wrap_group_label(text: str) -> str:
+            words = text.split()
+            if not words:
+                return ""
+            lines = []
+            current = words[0]
+            for w in words[1:]:
+                if len(current) + 1 + len(w) <= max_chars_per_line:
+                    current += " " + w
+                else:
+                    lines.append(current)
+                    current = w
+            lines.append(current)
+            if len(lines) > 3:
+                lines = lines[:3]
+                if len(lines[-1]) > 3:
+                    lines[-1] = lines[-1][: max_chars_per_line - 1] + "…"
+            return "\n".join(lines)
+
+        # Maximum label width in characters based on group width
+        max_label_chars = max(int(bar_group_width // 6), 4)
+
+        # Axis baseline at bottom of chart area
+        x_axis_y = top_margin + chart_height
+        self.create_line(
+            left_right_margin,
+            x_axis_y,
+            self.width - left_right_margin,
+            x_axis_y,
+            fill="#2c3e50",
+            width=2,
+        )
+
+        # Gridlines
         for i in range(5):
-            y = self.height - bottom_margin - (i * chart_height / 4)
-            self.create_line(left_right_margin, y, self.width - left_right_margin, y, fill="#ecf0f1", width=1)
+            y = x_axis_y - (i * chart_height / 4)
+            self.create_line(
+                left_right_margin,
+                y,
+                self.width - left_right_margin,
+                y,
+                fill="#ecf0f1",
+                width=1,
+            )
 
         # Better colors: blue for first, green for second
         colors = ["#3498db", "#27ae60"]
 
         for idx, (label, val1, val2) in enumerate(data):
-            base_x = left_right_margin + idx * bar_group_width
+            base_x = left_right_margin + group_spacing + idx * (bar_group_width + group_spacing)
             for jdx, value in enumerate((val1, val2)):
-                x0 = base_x + jdx * bar_width + 4
-                x1 = x0 + bar_width - 4
+                x0 = base_x + jdx * bar_width + 3
+                x1 = x0 + bar_width - 3
                 bar_height = (value / max_value) * chart_height
-                y0 = self.height - bottom_margin - bar_height
-                y1 = self.height - bottom_margin
+                y0 = x_axis_y - bar_height
+                y1 = x_axis_y
                 color = colors[jdx]
                 self.create_rectangle(x0, y0, x1, y1, fill=color, outline="", width=0)
-                self.create_text((x0 + x1) / 2, y0 - 12, text=str(value), font=("Helvetica", 9, "bold"), fill="#2c3e50")
+                self.create_text(
+                    (x0 + x1) / 2,
+                    y0 - 6,
+                    text=str(value),
+                    font=("Helvetica", 8, "bold"),
+                    fill="#2c3e50",
+                )
 
-            # X-axis label (truncate if needed)
-            label_text = str(label)
-            if len(label_text) > 10:
-                label_text = label_text[:9] + "…"
-            self.create_text(base_x + bar_group_width / 2, self.height - bottom_margin + 14, text=label_text,
-                             font=("Helvetica", 8), fill="#34495e")
+            # X-axis label: below axis, wrapped over multiple lines
+            raw_label = str(label)
+            label_text = _wrap_group_label(raw_label)
 
-        # Legend
-        legend_y = 36  # below title area, above bars
-        self.create_rectangle(left_right_margin, legend_y, left_right_margin + 14, legend_y + 14, fill=colors[0],
-                              outline="")
-        self.create_text(left_right_margin + 18, legend_y + 7, text=labels[0], anchor=tk.W, font=("Helvetica", 9),
-                         fill="#2c3e50")
-        self.create_rectangle(left_right_margin + 120, legend_y, left_right_margin + 134, legend_y + 14, fill=colors[1],
-                              outline="")
-        self.create_text(left_right_margin + 138, legend_y + 7, text=labels[1], anchor=tk.W, font=("Helvetica", 9),
-                         fill="#2c3e50")
+            label_y = x_axis_y + 6
+            self.create_text(
+                base_x + bar_group_width / 2,
+                label_y,
+                text=label_text,
+                font=("Helvetica", 7),
+                fill="#34495e",
+                anchor="n",
+            )
+
+        # Legend - compact
+        legend_y = 26  # below title area, above bars
+        self.create_rectangle(
+            left_right_margin,
+            legend_y,
+            left_right_margin + 12,
+            legend_y + 12,
+            fill=colors[0],
+            outline="",
+        )
+        self.create_text(
+            left_right_margin + 16,
+            legend_y + 6,
+            text=labels[0],
+            anchor=tk.W,
+            font=("Helvetica", 8),
+            fill="#2c3e50",
+        )
+        self.create_rectangle(
+            left_right_margin + 100,
+            legend_y,
+            left_right_margin + 112,
+            legend_y + 12,
+            fill=colors[1],
+            outline="",
+        )
+        self.create_text(
+            left_right_margin + 116,
+            legend_y + 6,
+            text=labels[1],
+            anchor=tk.W,
+            font=("Helvetica", 8),
+            fill="#2c3e50",
+        )
 
 
 class PillButton(tk.Canvas):

@@ -32,6 +32,17 @@ def _executemany(conn: sqlite3.Connection, sql: str, rows: Iterable[Tuple]) -> N
 def init_db() -> None:
     """Create tables and indexes if they do not exist."""
     os.makedirs(os.path.join(_project_root(), "data"), exist_ok=True)
+    
+    # Migration: Drop legacy unique indexes that are too strict
+    conn = _connect()
+    try:
+        conn.execute("DROP INDEX IF EXISTS unique_daily_report;")
+        conn.execute("DROP INDEX IF EXISTS one_coordinator;")
+        conn.commit()
+    except Exception:
+        pass  # Index might not exist
+    conn.close()
+    
     with _connect() as conn:
         _executescript(
             conn,
@@ -44,8 +55,7 @@ def init_db() -> None:
                 password TEXT NOT NULL DEFAULT ''
             );
 
-            -- Exactly one active coordinator and one active admin via partial unique indexes
-            CREATE UNIQUE INDEX IF NOT EXISTS one_coordinator ON users(role) WHERE role='coordinator' AND enabled=1;
+            -- Exactly one active admin via partial unique index
             CREATE UNIQUE INDEX IF NOT EXISTS one_admin ON users(role) WHERE role='admin' AND enabled=1;
 
             CREATE TABLE IF NOT EXISTS camps (
@@ -116,9 +126,6 @@ def init_db() -> None:
                 FOREIGN KEY (camp_id) REFERENCES camps(id) ON DELETE CASCADE,
                 FOREIGN KEY (leader_user_id) REFERENCES users(id) ON DELETE RESTRICT
             );
-
-            CREATE UNIQUE INDEX IF NOT EXISTS unique_daily_report
-            ON daily_reports(date, camp_id, leader_user_id);
 
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,

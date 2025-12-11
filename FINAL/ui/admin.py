@@ -20,6 +20,7 @@ from services import (
     remove_parent_camper,
     list_parent_campers,
     list_campers,
+    get_camper_parent,
 )
 from ui.components import MessageBoard, ScrollFrame
 from ui.theme import get_palette, tint
@@ -58,7 +59,9 @@ def _build_parent_camper_tab(container: tk.Widget) -> None:
     def _reload_options() -> None:
         """Refresh parent and camper lists from DB."""
         parents = [u for u in list_users() if u.get("role") == "parent" and u.get("enabled")]
-        campers = list_campers()
+        all_campers = list_campers()
+        # Filter out campers who are 18 or older - only show under 18
+        campers = [c for c in all_campers if not _is_adult(str(c.get("dob") or ""))]
         # Build fresh labels
         p_labels = [f"{p.get('username')}" for p in parents]
         c_labels = [f"{c.get('first_name')} {c.get('last_name')}" for c in campers]
@@ -113,12 +116,27 @@ def _build_parent_camper_tab(container: tk.Widget) -> None:
             return
         parent_id = parent_label_to_id.get(parent_label)
         camper_id = camper_label_to_id.get(camper_label)
-        # Block linking for campers aged 18+
+        # Block linking for campers aged 18+ (safety check - they shouldn't be in the dropdown)
         dob_txt = camper_id_to_dob.get(int(camper_id or 0), "")
         if dob_txt and _is_adult(dob_txt):
-            messagebox.showerror("Not allowed", "This camper is 18 or older. Parent linking is not allowed.")
+            messagebox.showerror(
+                "Not Allowed", 
+                "This camper is 18 or older. Parent linking is not allowed.\n\n"
+                "Please refresh the camper list."
+            )
+            _reload_options()  # Refresh to remove this camper from dropdown
             return
-        # Check if already linked
+        # Check if camper is already linked to ANY parent
+        existing_parent = get_camper_parent(camper_id)
+        if existing_parent:
+            messagebox.showerror(
+                "Already Linked", 
+                f"This camper is already linked to parent '{existing_parent['username']}'.\n\n"
+                f"Each camper can only have one parent assigned.\n"
+                f"Please unlink the existing parent first if you need to reassign."
+            )
+            return
+        # Check if already linked to this specific parent (redundant but kept for safety)
         linked = list_parent_campers(parent_id)
         if any(c['id'] == camper_id for c in linked):
             messagebox.showwarning("Already Linked", "Camper already linked to this parent.")
@@ -304,10 +322,11 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
 
     ttk.Label(form_frame, text="Role", font=("Helvetica", 11)).grid(row=0, column=2, padx=4, pady=2, sticky=tk.W)
     role_var = tk.StringVar(value="leader")
+    # Allow creating leaders, parents, and coordinators (admin is fixed)
     role_menu = ttk.Combobox(
         form_frame,
         textvariable=role_var,
-        values=["leader", "parent"],
+        values=["leader", "parent", "coordinator"],
         state="readonly",
         width=15,
         style="Filled.TCombobox",
@@ -345,12 +364,13 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         if not username:
             messagebox.showwarning("Validation", "Username is required.")
             return
-        if role in {"admin", "coordinator"}:
+        # Admin role is unique; multiple coordinators are allowed as long as at least one stays enabled
+        if role == "admin":
             for existing in user_cache.values():
-                if existing["role"] == role and existing["enabled"]:
+                if existing["role"] == "admin" and existing["enabled"]:
                     messagebox.showerror(
                         "Create user",
-                        f"Exactly one {role} is allowed. Disable the existing account first if you must replace it.",
+                        "Exactly one admin is allowed. Disable the existing admin account first if you must replace it.",
                     )
                     return
         if not create_user(username, role):
@@ -437,11 +457,22 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         if role == "admin":
             messagebox.showerror("Delete", "Cannot delete the admin account.")
             return
-        # Prevent deleting the last remaining user of a role
+        # Prevent deleting the last remaining user of a role (total users)
         total_counts = count_roles_total()
         if total_counts.get(role, 0) <= 1:
             messagebox.showerror("Delete", f"Cannot delete the sole {role} account.")
             return
+        # Additionally, never allow deleting the last *enabled* coordinator
+        # (must always have at least one enabled coordinator in the system)
+        if role == "coordinator" and record.get("enabled"):
+            enabled_counts = count_roles_enabled()
+            if enabled_counts.get("coordinator", 0) <= 1:
+                messagebox.showerror(
+                    "Delete",
+                    "Cannot delete the sole enabled coordinator account. "
+                    "Create and/or enable another coordinator first.",
+                )
+                return
         if record["id"] == user.get("id"):
             messagebox.showwarning("Delete", "You cannot delete the account currently logged in.")
             return
