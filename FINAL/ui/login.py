@@ -88,15 +88,22 @@ class CampTrackApp:
         self.login_frame.pack_forget()
         self.root.title(f"CampTrack - {user['role'].title()} Dashboard")
 
-        # Set appropriate window size for role
-        role_sizes = {
-            "admin": "900x700",
-            "coordinator": "1200x800",
-            "leader": "1000x750",
-            "parent": "1000x750",
-        }
-
-        self.root.geometry(role_sizes.get(user["role"], "1000x700"))
+        # Check if window is fullscreen/zoomed
+        is_fullscreen = self.root.attributes('-fullscreen') if hasattr(self.root, 'attributes') else False
+        is_zoomed = self.root.state() == 'zoomed' if hasattr(self.root, 'state') else False
+        
+        # Set appropriate window size for role (only if not fullscreen/zoomed)
+        if not is_fullscreen and not is_zoomed:
+            role_sizes = {
+                "admin": "900x700",
+                "coordinator": "1200x800",
+                "leader": "1000x750",
+                "parent": "1000x750",
+            }
+            self.root.geometry(role_sizes.get(user["role"], "1000x700"))
+        
+        # Force window update to ensure geometry is applied before building dashboard
+        self.root.update_idletasks()
 
         def logout() -> None:
             if messagebox.askyesno("Logout", "Do you really want to logout?"):
@@ -104,6 +111,9 @@ class CampTrackApp:
 
         self.active_dashboard = builder(self.root, user, logout)
         self.active_dashboard.pack(fill=tk.BOTH, expand=True)
+        
+        # Force another update to ensure dashboard renders correctly
+        self.root.update_idletasks()
 
     def _perform_logout(self) -> None:
         if self.active_dashboard is not None:
