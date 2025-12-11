@@ -1166,6 +1166,16 @@ def get_leader_statistics(leader_user_id: int) -> List[Dict[str, Any]]:
     """Get participation, food usage, and report stats for all camps led by this leader."""
     assignments = list_leader_assignments(leader_user_id)
 
+    # Reuse the same camp summary data that the coordinator dashboard uses
+    # so that figures like "effective_daily_food" stay consistent across
+    # coordinator and leader views.
+    camp_summary_df = get_camp_summary_df()
+    camp_summary_by_id = (
+        {int(row["id"]): row for _, row in camp_summary_df.iterrows()}
+        if not camp_summary_df.empty
+        else {}
+    )
+
     stats = []
     for assignment in assignments:
         camp_id = assignment["camp_id"]
@@ -1187,15 +1197,15 @@ def get_leader_statistics(leader_user_id: int) -> List[Dict[str, Any]]:
         campers_attending = len(attending_campers)
         participation_rate = (campers_attending / total_campers * 100) if total_campers > 0 else 0
 
-        # Calculate total food allocated
+        # Calculate total food allocated (per day across all campers)
         total_food_allocated = sum(c["food_units_per_day"] for c in campers)
 
         # Get camp details for duration
         camp = get_camp(camp_id)
         if camp:
             # Parse camp dates using YYYY-MM-DD format
-            start = pd.to_datetime(camp["start_date"], format='%Y-%m-%d', errors="coerce")
-            end = pd.to_datetime(camp["end_date"], format='%Y-%m-%d', errors="coerce")
+            start = pd.to_datetime(camp["start_date"], format="%Y-%m-%d", errors="coerce")
+            end = pd.to_datetime(camp["end_date"], format="%Y-%m-%d", errors="coerce")
 
             if pd.isna(start) or pd.isna(end):
                 camp_days = 0
@@ -1206,6 +1216,20 @@ def get_leader_statistics(leader_user_id: int) -> List[Dict[str, Any]]:
         else:
             camp_days = 0
             total_food_used = 0
+
+        # Pull the same "effective_daily_food" figure used in coordinator
+        # analytics so the leader Statistics tab matches exactly.
+        camp_summary = camp_summary_by_id.get(int(camp_id)) if camp_summary_by_id else None
+        # 'camp_summary' is a pandas Series; avoid using it directly in a
+        # boolean context (which is ambiguous). Instead, check explicitly
+        # for None, then pull the scalar value.
+        if camp_summary is not None and "effective_daily_food" in camp_summary:
+            try:
+                effective_daily = int(camp_summary["effective_daily_food"])
+            except Exception:
+                effective_daily = 0
+        else:
+            effective_daily = 0
 
         # Count daily reports (incident reports)
         reports = list_daily_reports(leader_user_id, camp_id)
@@ -1222,6 +1246,7 @@ def get_leader_statistics(leader_user_id: int) -> List[Dict[str, Any]]:
             "total_activities": total_activities,
             "food_allocated_per_day": total_food_allocated,
             "total_food_used": total_food_used,
+            "effective_daily_food": effective_daily,
             "incident_report_count": incident_report_count,
         })
 

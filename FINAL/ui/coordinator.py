@@ -658,32 +658,94 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     # Configure grid for better space allocation
     tab_stock.grid_rowconfigure(0, weight=0)  # Top-up label (fixed)
     tab_stock.grid_rowconfigure(1, weight=0)  # Top-up frame (fixed)
-    tab_stock.grid_rowconfigure(2, weight=0)  # History label (fixed)
-    tab_stock.grid_rowconfigure(3, weight=1)  # History frame expands to fill
+    tab_stock.grid_rowconfigure(2, weight=0)  # Stock camp list label (fixed)
+    tab_stock.grid_rowconfigure(3, weight=1)  # Stock camp list (expands)
+    tab_stock.grid_rowconfigure(4, weight=0)  # History label (fixed)
+    tab_stock.grid_rowconfigure(5, weight=1)  # History frame (expands)
     tab_stock.grid_columnconfigure(0, weight=1)  # Column expands horizontally
 
-    ttk.Label(tab_stock, text="Top up daily food", font=("Helvetica", 12, "bold")).grid(row=0, column=0, sticky="w", padx=10, pady=(6, 2))
+    ttk.Label(tab_stock, text="Top up daily food", font=("Helvetica", 12, "bold")).grid(
+        row=0, column=0, sticky="w", padx=10, pady=(6, 2)
+    )
     topup_frame = ttk.Frame(tab_stock, style="Card.TFrame", padding=10)
     topup_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
 
-    # Selected camp indicator
+    # Selected camp indicator (for Stock tab selection only)
     selected_camp_var = tk.StringVar(value="No camp selected")
-    selected_camp_label = ttk.Label(topup_frame, textvariable=selected_camp_var, font=("Helvetica", 11, "bold"))
+    selected_camp_label = ttk.Label(
+        topup_frame, textvariable=selected_camp_var, font=("Helvetica", 11, "bold")
+    )
     selected_camp_label.pack(pady=(0, 4), anchor=tk.W)
 
-    ttk.Label(topup_frame, text="Select a camp from 'Camps' tab, then apply a delta:").pack(pady=4, anchor=tk.W)
+    ttk.Label(
+        topup_frame,
+        text="Select a camp from the list below, then apply a delta:",
+    ).pack(pady=4, anchor=tk.W)
 
     topup_input_frame = ttk.Frame(topup_frame)
     topup_input_frame.pack(fill=tk.X, pady=4)
 
     topup_var = tk.StringVar(value="0")
-    ttk.Label(topup_input_frame, text="Delta units per day (+/-)").pack(side=tk.LEFT, padx=4)
+    ttk.Label(topup_input_frame, text="Delta units per day (+/-)").pack(
+        side=tk.LEFT, padx=4
+    )
     ttk.Entry(topup_input_frame, textvariable=topup_var, width=10).pack(side=tk.LEFT, padx=4)
 
+    # Camps list used specifically for stock management (independent of Camps tab selection)
+    ttk.Label(
+        tab_stock,
+        text="Camps (for stock management)",
+        font=("Helvetica", 12, "bold"),
+    ).grid(row=2, column=0, sticky="w", padx=10, pady=(6, 2))
+
+    stock_camps_frame = ttk.Frame(tab_stock, style="Card.TFrame", padding=10)
+    stock_camps_frame.grid(row=3, column=0, sticky="nsew", padx=10, pady=(0, 6))
+
+    stock_camps_table = ttk.Treeview(stock_camps_frame, columns=columns, show="headings")
+    stock_camps_table.pack(fill=tk.BOTH, expand=True)
+    # Reuse same headings/columns as main camps table
+    stock_camps_table.heading("Name", text="Name", anchor=tk.W)
+    stock_camps_table.column("Name", width=140, minwidth=120, stretch=True, anchor=tk.W)
+    stock_camps_table.heading("County", text="County", anchor=tk.W)
+    stock_camps_table.column("County", width=120, minwidth=100, stretch=True, anchor=tk.W)
+    stock_camps_table.heading("City", text="City", anchor=tk.CENTER)
+    stock_camps_table.column("City", width=100, minwidth=80, stretch=True, anchor=tk.CENTER)
+    stock_camps_table.heading("Type", text="Type", anchor=tk.CENTER)
+    stock_camps_table.column("Type", width=100, minwidth=80, stretch=True, anchor=tk.CENTER)
+    stock_camps_table.heading("Leaders", text="Leaders", anchor=tk.CENTER)
+    stock_camps_table.column("Leaders", width=120, minwidth=100, stretch=True, anchor=tk.CENTER)
+    stock_camps_table.heading("Start", text="Start", anchor=tk.CENTER)
+    stock_camps_table.column("Start", width=90, minwidth=80, stretch=True, anchor=tk.CENTER)
+    stock_camps_table.heading("End", text="End", anchor=tk.CENTER)
+    stock_camps_table.column("End", width=90, minwidth=80, stretch=True, anchor=tk.CENTER)
+    stock_camps_table.heading("Daily Food", text="Daily Food", anchor=tk.CENTER)
+    stock_camps_table.column("Daily Food", width=100, minwidth=80, stretch=True, anchor=tk.CENTER)
+    stock_camps_table.heading("Default Food/Person", text="Default Food/Person", anchor=tk.CENTER)
+    stock_camps_table.column(
+        "Default Food/Person",
+        width=150,
+        minwidth=120,
+        stretch=True,
+        anchor=tk.CENTER,
+    )
+    stock_camps_table.heading("Top-up Δ", text="Top-up Δ", anchor=tk.CENTER)
+    stock_camps_table.column("Top-up Δ", width=100, minwidth=80, stretch=True, anchor=tk.CENTER)
+    stock_camps_table.heading("Effective Daily", text="Effective Daily", anchor=tk.CENTER)
+    stock_camps_table.column(
+        "Effective Daily",
+        width=120,
+        minwidth=100,
+        stretch=True,
+        anchor=tk.CENTER,
+    )
+
     def apply_topup() -> None:
-        selection = camps_table.selection()
+        # Use the stock tab's own camp selection
+        selection = stock_camps_table.selection()
         if not selection:
-            messagebox.showinfo("Top-up", "Select a camp from 'Camps' tab first.")
+            messagebox.showinfo(
+                "Top-up", "Select a camp from the Stock Management camp list first."
+            )
             return
         if not topup_var.get().strip() or topup_var.get().strip() == "0":
             messagebox.showwarning("Top-up", "Enter a non-zero integer delta.")
@@ -694,16 +756,26 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             messagebox.showerror("Top-up", "Delta must be an integer (can be negative).")
             return
         camp_id = int(selection[0])
+        # Update selected camp indicator to reflect the stock selection
+        item = stock_camps_table.item(selection[0])
+        vals = dict(zip(columns, item["values"]))
+        selected_camp_var.set(f"Selected camp: {vals.get('Name', 'Unknown')}")
         add_stock_topup(camp_id, delta)
         load_camps()
         topup_var.set("0")
         refresh_topup_history()
 
-    ttk.Button(topup_input_frame, text="Apply", command=apply_topup, style="Primary.TButton").pack(side=tk.LEFT, padx=4)
+    ttk.Button(
+        topup_input_frame, text="Apply", command=apply_topup, style="Primary.TButton"
+    ).pack(side=tk.LEFT, padx=4)
 
-    ttk.Label(tab_stock, text="Top-up history for selected camp", font=("Helvetica", 12, "bold")).grid(row=2, column=0, sticky="w", padx=10, pady=(6, 2))
+    ttk.Label(
+        tab_stock,
+        text="Top-up history for selected camp (Stock tab selection)",
+        font=("Helvetica", 12, "bold"),
+    ).grid(row=4, column=0, sticky="w", padx=10, pady=(6, 2))
     history_frame = ttk.Frame(tab_stock, style="Card.TFrame", padding=10)
-    history_frame.grid(row=3, column=0, sticky="nsew", padx=10, pady=(0, 6))
+    history_frame.grid(row=5, column=0, sticky="nsew", padx=10, pady=(0, 6))
 
     # Text area with themed scrollbar
     history_scroll = ttk.Scrollbar(history_frame, orient="vertical")
@@ -713,11 +785,15 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     history_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
     def refresh_topup_history() -> None:
-        selection = camps_table.selection()
+        # Use camp selection from the Stock Management camp list
+        selection = stock_camps_table.selection()
         if not selection:
             history.config(state="normal")
             history.delete("1.0", tk.END)
-            history.insert(tk.END, "Select a camp from 'Camps' tab to view top-up history.\n")
+            history.insert(
+                tk.END,
+                "Select a camp from the Stock Management camp list to view top-up history.\n",
+            )
             history.config(state="disabled")
             return
         camp_id = int(selection[0])
@@ -734,7 +810,18 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                 )
         history.config(state="disabled")
 
-    camps_table.bind("<<TreeviewSelect>>", lambda _evt: refresh_topup_history())
+    # Update selected camp label whenever a stock camp is chosen
+    def _on_stock_camp_select(_evt=None) -> None:
+        sel = stock_camps_table.selection()
+        if not sel:
+            selected_camp_var.set("No camp selected")
+            return
+        item = stock_camps_table.item(sel[0])
+        vals = dict(zip(columns, item["values"]))
+        selected_camp_var.set(f"Selected camp: {vals.get('Name', 'Unknown')}")
+        refresh_topup_history()
+
+    stock_camps_table.bind("<<TreeviewSelect>>", _on_stock_camp_select)
 
     # ========== Tab 3: Analytics & Alerts ==========
     tab_analytics = tk.Frame(notebook)
@@ -823,39 +910,47 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         chart_food.draw(food_data, labels=("Effective", "Required"), title="Daily food planned vs required")
 
     def load_camps() -> None:
+        camps = list_camps()
+
+        # Populate main Camps tab table
         camps_table.delete(*camps_table.get_children())
         palette = get_palette(camps_table)
-        # Configure zebra striping
         camps_table.tag_configure("even", background=palette["surface"])
         camps_table.tag_configure("odd", background=tint(palette["surface"], -0.03))
 
-        camps = list_camps()
+        # Populate Stock Management tab camps table
+        stock_camps_table.delete(*stock_camps_table.get_children())
+        stock_palette = get_palette(stock_camps_table)
+        stock_camps_table.tag_configure("even", background=stock_palette["surface"])
+        stock_camps_table.tag_configure(
+            "odd", background=tint(stock_palette["surface"], -0.03)
+        )
+
         if not camps:
             camps_empty_label.pack(pady=(4, 0), anchor=tk.W)
-            return
         else:
             camps_empty_label.pack_forget()
 
         for idx, camp in enumerate(camps):
-            camps_table.insert(
-                "",
-                tk.END,
-                iid=camp["id"],
-                values=(
-                    camp["name"],
-                    camp["location"],
-                    camp.get("area", ""),
-                    camp["type"],
-                    camp.get("leader_names", "-"),
-                    camp["start_date"],
-                    camp["end_date"],
-                    camp["daily_food_units_planned"],
-                    camp["default_food_units_per_camper_per_day"],
-                    camp["topup_delta"],
-                    camp["effective_daily_food"],
-                ),
-                tags=("odd",) if (idx % 2 == 1) else ("even",),
+            row_values = (
+                camp["name"],
+                camp["location"],
+                camp.get("area", ""),
+                camp["type"],
+                camp.get("leader_names", "-"),
+                camp["start_date"],
+                camp["end_date"],
+                camp["daily_food_units_planned"],
+                camp["default_food_units_per_camper_per_day"],
+                camp["topup_delta"],
+                camp["effective_daily_food"],
             )
+            tag = ("odd",) if (idx % 2 == 1) else ("even",)
+            camps_table.insert("", tk.END, iid=camp["id"], values=row_values, tags=tag)
+            stock_camps_table.insert(
+                "", tk.END, iid=camp["id"], values=row_values, tags=tag
+            )
+
         refresh_charts()
         refresh_alerts()
 

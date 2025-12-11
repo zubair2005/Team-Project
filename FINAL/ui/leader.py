@@ -136,7 +136,12 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     assignments_frame.grid(row=1, column=0, columnspan=1, sticky="nsew", padx=10, pady=6)
 
     columns = ("Camp", "County", "City", "Start", "End")
-    assignments_table = ttk.Treeview(assignments_frame, columns=columns, show="headings")
+    assignments_table = ttk.Treeview(
+        assignments_frame,
+        columns=columns,
+        show="headings",
+        selectmode="browse",  # allow only a single active assignment
+    )
     assignments_table.pack(fill=tk.BOTH, expand=True, pady=4)
     assignments_table.heading("Camp", text="Camp", anchor=tk.W)
     assignments_table.column("Camp", width=200, minwidth=160, stretch=True, anchor=tk.W)
@@ -179,7 +184,12 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         refresh_available_camps()
 
     tk.Label(assignments_frame, text="Available camps (no conflicts)").pack(pady=(10, 4))
-    available_table = ttk.Treeview(assignments_frame, columns=columns, show="headings")
+    available_table = ttk.Treeview(
+        assignments_frame,
+        columns=columns,
+        show="headings",
+        selectmode="browse",  # allow only a single available camp selection
+    )
     available_table.pack(fill=tk.BOTH, expand=True, pady=4)
     available_table.heading("Camp", text="Camp", anchor=tk.W)
     available_table.column("Camp", width=200, minwidth=160, stretch=True, anchor=tk.W)
@@ -381,21 +391,37 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             label_to_camp_id[label] = rec["camp_id"]
             values.append(label)
         if not values:
+            # No assignments yet
             camp_selector.configure(values=["(None)"])
             camp_selector_var.set("(None)")
-            # Keep unspecified so cross-tab fallback works until user explicitly picks "(None)"
-            selected_camp_for_campers = None
+            selected_camp_for_campers = -1
         else:
+            # We always offer "(None)" as the default option, and
+            # do NOT auto-select a camp unless the user (or Camps tab)
+            # has already chosen one.
             camp_selector.configure(values=["(None)"] + values)
-            # Keep current selection if still available; else reset
             current = camp_selector_var.get()
             if current in label_to_camp_id:
-                # Keep same
+                # Keep existing explicit selection
                 selected_camp_for_campers = label_to_camp_id[current]
             else:
+                # Default to "(None)" when there is no prior choice
                 camp_selector_var.set("(None)")
-                # Keep unspecified so cross-tab fallback works until user explicitly picks "(None)"
-                selected_camp_for_campers = None
+                selected_camp_for_campers = -1
+
+    def _sync_assignment_to_camp(camp_id: Optional[int]) -> None:
+        """Ensure the Camps tab assignment table selection matches the given camp."""
+        if camp_id is None:
+            return
+        rows = list_leader_assignments(leader_id)
+        for rec in rows:
+            if rec.get("camp_id") == camp_id:
+                try:
+                    assignments_table.selection_set(rec["id"])
+                    assignments_table.see(rec["id"])
+                except Exception:
+                    pass
+                break
 
     def _on_camp_selected(_evt=None) -> None:
         nonlocal selected_camp_for_campers
@@ -404,7 +430,12 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             selected_camp_for_campers = -1
         else:
             selected_camp_for_campers = label_to_camp_id.get(label)
+        # When user picks a camp in the Campers tab, sync it back to the
+        # Camps tab and refresh related views.
+        _sync_assignment_to_camp(selected_camp_for_campers)
         load_campers_for_selection()
+        load_activities()
+        refresh_daily_reports()
 
     camp_selector.bind("<<ComboboxSelected>>", _on_camp_selected)
 
@@ -414,12 +445,15 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
             tab_text = notebook.tab(notebook.select(), "text")
             if tab_text == "Campers":
                 refresh_camp_selector()
-                # If no explicit selection in the in-tab selector, sync to assignment table selection
-                if selected_camp_for_campers is None:
-                    _sync_selector_to_assignment()
+                # After refresh, load campers for the currently selected camp
+                load_campers_for_selection()
         except Exception:
             pass
     notebook.bind("<<NotebookTabChanged>>", _on_tab_changed)
+
+    # Initial population so the Camp selector is ready even the first
+    # time the user opens the Campers tab without touching the Camps tab.
+    refresh_camp_selector()
 
     # Sort + Search controls
     controls_row = ttk.Frame(tab_campers)
@@ -955,7 +989,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     def load_campers_for_selection() -> None:
         # Prefer in-tab selector
         target_camp_id: Optional[int] = selected_camp_for_campers
-        # If explicitly "(None)" was chosen, clear and return (do not fall back)
+        # If explicitly "(None)" was chosen, clear and return
         if target_camp_id == -1:
             try:
                 for child in list(gallery_content.children.values()):
@@ -972,31 +1006,27 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                 pass
             campers_empty_label.pack(pady=(0, 4), anchor=tk.W)
             return
-        # Fallback: use selection from 'Camps' tab if none chosen in selector
-        selection = assignments_table.selection()
-        assignment_id = int(selection[0]) if selection else None
-        record = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None) if assignment_id is not None else None
-        if target_camp_id is None and record is not None:
-            target_camp_id = record["camp_id"]
+        # If nothing chosen yet in the selector, refresh it and use its default
         if target_camp_id is None:
-            # Nothing selected anywhere; show empty state
-            # Clear any existing gallery content
-            try:
-                for child in list(gallery_content.children.values()):
-                    child.destroy()
-                setattr(tab_campers, "_last_gallery_count", 0)
-            except Exception:
-                pass
-            # Close any open profile dialog
-            try:
-                prev = getattr(tab_campers, "_profile_dialog", None)
-                if prev is not None and prev.winfo_exists():
-                    prev.destroy()
-                    setattr(tab_campers, "_profile_dialog", None)
-            except Exception:
-                pass
-            campers_empty_label.pack(pady=(0, 4), anchor=tk.W)
-            return
+            refresh_camp_selector()
+            target_camp_id = selected_camp_for_campers
+            if target_camp_id in (None, -1):
+                # Still nothing to show
+                try:
+                    for child in list(gallery_content.children.values()):
+                        child.destroy()
+                    setattr(tab_campers, "_last_gallery_count", 0)
+                except Exception:
+                    pass
+                try:
+                    prev = getattr(tab_campers, "_profile_dialog", None)
+                    if prev is not None and prev.winfo_exists():
+                        prev.destroy()
+                        setattr(tab_campers, "_profile_dialog", None)
+                except Exception:
+                    pass
+                campers_empty_label.pack(pady=(0, 4), anchor=tk.W)
+                return
         campers = list_camp_campers(target_camp_id)
         # Apply active search filter if present
         scope = active_search.get("scope")
@@ -1081,7 +1111,25 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         else:
             campers_empty_label.pack_forget()
 
-    assignments_table.bind("<<TreeviewSelect>>", lambda _evt: load_campers_for_selection())
+    # When an unassigned camp is selected in the Camps tab, clear the
+    # current camp selection across tabs so everything shows "None".
+    def _on_available_select(_evt=None) -> None:
+        nonlocal selected_camp_for_campers
+        try:
+            # Clear any assigned camp selection
+            assignments_table.selection_remove(*assignments_table.get_children())
+        except Exception:
+            pass
+        # Reset the in-tab selector to "(None)" and clear dependent views
+        selected_camp_for_campers = -1
+        camp_selector_var.set("(None)")
+        load_campers_for_selection()
+        load_activities()
+        refresh_daily_reports()
+
+    available_table.bind("<<TreeviewSelect>>", _on_available_select)
+
+    # Campers tab now uses its own selector; do not auto-sync from Camps tab
 
     def import_csv() -> None:
         selection = assignments_table.selection()
@@ -1198,15 +1246,25 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     activities_empty_label.pack_forget()
 
     def load_activities() -> None:
-        selection = assignments_table.selection()
         activities_table.load_rows([])
-        if not selection:
+        # Prefer the in-tab Campers selector if it has an active camp
+        camp_id: Optional[int] = selected_camp_for_campers
+        if camp_id in (None, -1):
+            # Fallback: use current assignment selection in Camps tab
+            selection = assignments_table.selection()
+            if not selection:
+                return
+            assignment_id = int(selection[0])
+            assignment = next(
+                (rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id),
+                None,
+            )
+            if assignment is None:
+                return
+            camp_id = assignment["camp_id"]
+        if camp_id in (None, -1):
             return
-        assignment_id = int(selection[0])
-        assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
-        if assignment is None:
-            return
-        activities = list_camp_activities(assignment["camp_id"])
+        activities = list_camp_activities(camp_id)
         rows = []
         for activity in activities:
             participants = list_activity_campers(activity["id"])
@@ -1629,14 +1687,22 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     ttk.Button(activities_actions, text="Unassign campers", command=unassign_campers_from_selected_activity).pack(side=tk.LEFT, padx=4)
 
     def refresh_current_assignment_details() -> None:
-        # Keep the in-tab selector in sync with assignment selection unless user picked "(None)"
-        if selected_camp_for_campers is None:
-            _sync_selector_to_assignment()
+        # Always keep the in-tab selector in sync with assignment selection
+        _sync_selector_to_assignment()
         load_campers_for_selection()
         load_activities()
         refresh_daily_reports()
 
-    assignments_table.bind("<<TreeviewSelect>>", lambda _evt: refresh_current_assignment_details())
+    def _on_assignments_select(_evt=None) -> None:
+        # When an assigned camp is selected, clear any selection in the
+        # available camps list so only one camp is effectively active.
+        try:
+            available_table.selection_remove(*available_table.get_children())
+        except Exception:
+            pass
+        refresh_current_assignment_details()
+
+    assignments_table.bind("<<TreeviewSelect>>", _on_assignments_select)
 
     # ========== Tab 4: Daily Reports ==========
     tab_reports = tk.Frame(notebook)
@@ -1685,15 +1751,24 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         detail_text.insert("1.0", "Select a report to view the full message.")
         detail_text.config(state="disabled")
 
-        selection = assignments_table.selection()
-        if not selection:
-            return
-        assignment_id = int(selection[0])
-        assignment = next((rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id), None)
-        if assignment is None:
+        # Prefer the in-tab selector's camp if available
+        camp_id: Optional[int] = selected_camp_for_campers
+        if camp_id in (None, -1):
+            selection = assignments_table.selection()
+            if not selection:
+                return
+            assignment_id = int(selection[0])
+            assignment = next(
+                (rec for rec in list_leader_assignments(leader_id) if rec["id"] == assignment_id),
+                None,
+            )
+            if assignment is None:
+                return
+            camp_id = assignment["camp_id"]
+        if camp_id in (None, -1):
             return
 
-        reports = list_daily_reports(leader_id, assignment["camp_id"])
+        reports = list_daily_reports(leader_id, camp_id)
 
         # Zebra-striping
         palette = get_palette(reports_table)
@@ -2068,7 +2143,18 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     stats_container.grid(row=3, column=0, sticky="nsew", padx=10, pady=6)
 
     # Stats table - page-level scrolling only
-    stats_table_columns = ["Camp", "Area", "Days", "Campers", "Attending", "Participation %", "Activities", "Food/Day", "Total Food", "Reports"]
+    # Show a single 'Effective Daily' column (matching coordinator dashboard)
+    stats_table_columns = [
+        "Camp",
+        "Area",
+        "Days",
+        "Campers",
+        "Attending",
+        "Participation %",
+        "Activities",
+        "Effective Daily",
+        "Reports",
+    ]
     stats_table = Table(stats_container, columns=stats_table_columns)
     stats_table.pack(fill=tk.BOTH, expand=True)
     
@@ -2077,7 +2163,15 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
     stats_table.column("Camp", anchor=tk.W, width=160, minwidth=130, stretch=True)
     stats_table.heading("Area", text="Area", anchor=tk.W)
     stats_table.column("Area", anchor=tk.W, width=120, minwidth=100, stretch=True)
-    for col in ["Days", "Campers", "Attending", "Participation %", "Activities", "Food/Day", "Total Food", "Reports"]:
+    for col in [
+        "Days",
+        "Campers",
+        "Attending",
+        "Participation %",
+        "Activities",
+        "Effective Daily",
+        "Reports",
+    ]:
         stats_table.heading(col, text=col, anchor=tk.CENTER)
         stats_table.column(col, anchor=tk.CENTER, width=120, minwidth=100, stretch=True)
 
@@ -2088,18 +2182,20 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
         stats = get_leader_statistics(leader_id)
         rows = []
         for stat in stats:
-            rows.append((
-                stat["camp_name"],
-                stat["camp_area"],
-                stat["camp_days"],
-                stat["total_campers"],
-                stat["campers_attending"],
-                f"{stat['participation_rate']}%",
-                stat["total_activities"],
-                stat["food_allocated_per_day"],
-                stat["total_food_used"],
-                stat["incident_report_count"],
-            ))
+            rows.append(
+                (
+                    stat["camp_name"],
+                    stat["camp_area"],
+                    stat["camp_days"],
+                    stat["total_campers"],
+                    stat["campers_attending"],
+                    f"{stat['participation_rate']}%",
+                    stat["total_activities"],
+                    # Use the same effective daily figure shown in the coordinator dashboard
+                    stat.get("effective_daily_food", 0),
+                    stat["incident_report_count"],
+                )
+            )
         stats_table.load_rows(rows)
         # Zebra-striping after load
         palette = get_palette(stats_table)
