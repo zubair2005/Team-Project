@@ -472,7 +472,7 @@ def build_dashboard(root: tk.Misc, user: Dict[str, str], logout_callback: Callab
                     "Cannot delete the sole enabled coordinator account. "
                     "Create and/or enable another coordinator first.",
                 )
-            return
+                return
         if record["id"] == user.get("id"):
             messagebox.showwarning("Delete", "You cannot delete the account currently logged in.")
             return
